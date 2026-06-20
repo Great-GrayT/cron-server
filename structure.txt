@@ -1,0 +1,43 @@
+cron-service/
+├── .env.example                 # Public template for environment variables (No secrets)
+├── tsconfig.json                # TypeScript configuration (with resolveJsonModule: true)
+├── package.json
+├── src/
+│   ├── app/                     # NEXT.JS API LAYER (Web Services / Exposed Ingress)
+│   │   └── api/
+│   │       ├── jobs/            # Internal Cron Administration Endpoints
+│   │       │   └── route.ts     # Protected: Triggers or schedules system mutations
+│   │       └── v1/              # PUBLIC WEB SERVICES / APIS PROVIDED TO CLIENTS
+│   │           └── analytics/
+│   │               └── route.ts # GET /api/v1/analytics (Serves processed RSS insights)
+│   ├── core/                    # ARCHITECTURAL CORE (Pure, Framework-Agnostic Engine)
+│   │   ├── scheduler/           # Cron evaluation engine (Tracks when to run)
+│   │   │   └── engine.ts
+│   │   └── workers/             # Background runner logic (Triggers fetches asynchronously)
+│   │       └── runner.ts
+│   ├── services/                # EGRESS INTEGRATIONS (Third-party data fetchers)
+│   │   └── rss/
+│   │       ├── client.ts        # Secure HTTP client (Fetches RSS.com data with SSRF guards)
+│   │       └── parser.ts        # Secure XML-to-JSON parser (With XXE defenses disabled)
+│   ├── analysis/                # DATA PROCESSING & PIPELINE ENGINE
+│   │   ├── pipeline.ts          # Pipeline orchestrator (Manages execution steps & logging tracing)
+│   │   ├── dictionaries/        # Immutable reference static datasets (JSON format)
+│   │   │   ├── category-map.json# Maps RSS categories to system domains
+│   │   │   └── error-codes.json # Maps provider fetch anomalies
+│   │   └── steps/               # Single-Responsibility analysis steps
+│   │       ├── 01-sanitize.ts   # Structural validation (Zod schema checking)
+│   │       ├── 02-enrich.ts     # Lookups using local JSON dictionary files
+│   │       └── 03-aggregate.ts  # Database compilation & final persistence
+│   ├── db/                      # PERSISTENCE LAYER (PostgreSQL & ORM)
+│   │   ├── client.ts            # Parametrised database connection pool
+│   │   └── schema.ts            # Database schema definitions (Prisma/Drizzle)
+│   ├── lib/                     # INFRASTRUCTURE UTILITIES & GLOBAL DEFENSES
+│   │   ├── logger.ts            # Structured JSON logger (Context tracing & PII sanitisation)
+│   │   ├── ssrf-guard.ts        # Networking utility to filter private/local IPs
+│   │   └── redis.ts             # Distributed locking (Prevents duplicate cron execution)
+│   ├── middleware.ts            # Next.js global edge security middleware (Rate-limiting)
+│   └── types/                   # GLOBAL DOMAIN TYPES
+│       ├── index.ts             # Central type declarations (e.g., RSSPayload, TraceContext)
+│       └── rss.d.ts             # TypeScript definitions for raw RSS feed layouts
+
+

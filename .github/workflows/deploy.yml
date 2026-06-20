@@ -1,0 +1,70 @@
+name: Deploy to server
+
+# Deploys this Git repository to a server over SSH on every push to main,
+# following the GitHub Actions -> VPS pattern.
+#
+# Required GitHub repository secrets (Settings -> Secrets and variables -> Actions):
+#   SSH_HOST        - server IP or hostname
+#   SSH_USER        - ssh login user (e.g. deploy)
+#   SSH_KEY         - private SSH key with access to the server (PEM contents)
+#   SSH_PORT        - ssh port (optional, defaults to 22)
+#   DEPLOY_PATH     - absolute path of the repo checkout on the server
+#
+# The app's own runtime secrets (DATABASE_URL, CRON_SECRET, RSS_FEED_URL, ...)
+# live in the server's `.env` file, NOT in this workflow.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  # 1) Verify the build before touching the server.
+  build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+        env:
+          # Build does not need a real DB; a placeholder satisfies config parsing.
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+
+  # 2) SSH in, pull, install, migrate, build, and restart via pm2.
+  deploy:
+    needs: build-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            git fetch --all
+            git reset --hard origin/main
+            export PNPM_HOME="$HOME/.local/share/pnpm"
+            export PATH="$PNPM_HOME:$PATH"
+            pnpm install --frozen-lockfile
+            pnpm db:migrate
+            pnpm build
+            # Start on first deploy, reload on subsequent ones (zero-downtime).
+            pm2 reload rss-cron-service || pm2 start pnpm --name rss-cron-service -- start
+            pm2 save

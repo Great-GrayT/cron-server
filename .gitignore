@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+build/
+.env
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+# Prisma-generated client (regenerated on install via postinstall)
+src/generated/
+# Reference copy of the original app being ported — not part of this server
+the project we are trying to implement to this server/
+.DS_Store
+npm-debug.log*
+pnpm-debug.log*
+dev-server.log

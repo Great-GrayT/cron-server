@@ -1,0 +1,127 @@
+// Prisma schema — single source of truth for the database.
+// `prisma migrate` turns these models into version-controlled SQL migrations;
+// the generated client emits parameterised queries (SQL-injection safe), which
+// neutralises any injection vectors hiding in untrusted RSS/scraped strings.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // pg_trgm powers fast substring / word-inside-text search (ILIKE '%word%')
+  // on the indexed text columns below.
+  extensions = [pg_trgm]
+}
+
+/// A processed job posting (ported from the old R2 `JobStatistic` shape).
+/// This is the queryable backbone for the stats/rss APIs: indexed columns
+/// support time-series (extractedDate), filtering (industry/seniority/country),
+/// and search (title/company). Array fields hold the multi-value tags.
+model Job {
+  id            String   @id // stable id from JobMetadataExtractor
+  url           String   @unique // dedup key (was the R2 url-index)
+  title         String
+  company       String
+  location      String
+  country       String?
+  city          String?
+  region        String? // Europe | America | Middle East | Asia | Africa | Oceania
+  postedDate    DateTime @map("posted_date")
+  extractedDate DateTime @map("extracted_date")
+
+  industry  String
+  seniority String
+
+  // Heavy text — kept on the same row but excluded from list/stat selects.
+  description String @db.Text
+
+  keywords         String[]
+  certificates     String[]
+  software         String[]
+  programmingSkills String[] @map("programming_skills")
+  academicDegrees  String[] @map("academic_degrees")
+  // Numeric so it supports range filtering (e.g. 2..5 years). Parsed + capped
+  // (<=15) at ingest from the raw "N years" text.
+  experienceYears  Int?     @map("experience_years")
+  roleType         String?  @map("role_type")
+  roleCategory     String?  @map("role_category")
+
+  // Flattened SalaryData (was a nested object in R2).
+  salaryMin      Float?  @map("salary_min")
+  salaryMax      Float?  @map("salary_max")
+  salaryCurrency String? @map("salary_currency")
+  salaryPeriod   String? @map("salary_period")
+
+  sourceFeed String?  @map("source_feed")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // --- Scalar filter/sort indexes (one per stats facet + time-series) ---
+  @@index([extractedDate])
+  @@index([postedDate])
+  @@index([industry])
+  @@index([seniority])
+  @@index([country])
+  @@index([region])
+  @@index([city])
+  @@index([company])
+  @@index([roleCategory])
+  @@index([roleType])
+  @@index([experienceYears])
+  @@index([salaryMin])
+  // Time-series-by-category (VelocityStream, CertsBump, heatmaps filtered by facet)
+  @@index([extractedDate, industry])
+  @@index([extractedDate, seniority])
+
+  // --- Array tag GIN indexes: fast `has`/`hasSome` filtering + unnest
+  //     aggregation for SkillsWordCloud / Certs / keyword facets ---
+  @@index([keywords], type: Gin)
+  @@index([certificates], type: Gin)
+  @@index([software], type: Gin)
+  @@index([programmingSkills], type: Gin)
+  @@index([academicDegrees], type: Gin)
+
+  // --- Trigram GIN indexes: index-fast substring / word-inside-text search
+  //     (ILIKE '%word%') for free-text `q` across every text column ---
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_title_trgm_idx")
+  @@index([company(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_company_trgm_idx")
+  @@index([location(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_location_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_description_trgm_idx")
+
+  @@map("jobs")
+}
+
+/// Dedup ledger for the Telegram pipelines (replaces the R2 UrlCache).
+/// One row per URL we've already sent, namespaced per pipeline, with an
+/// expiry so old postings can re-notify after the window.
+model SentUrl {
+  id        String   @id @default(uuid()) @db.Uuid
+  namespace String // "url-rss" | "url-rss-aryan" | "url-scraper"
+  url       String
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([namespace, url])
+  @@index([namespace, expiresAt])
+  @@map("sent_urls")
+}
+
+/// One row per cron/scrape execution — structured run history for tracing.
+model CronRun {
+  id        String   @id @default(uuid()) @db.Uuid
+  traceId   String   @map("trace_id")
+  job       String // "check-jobs" | "check-jobs-aryan" | "scrape-jobs" | "stats-ingest"
+  ok        Boolean  @default(false)
+  total     Int      @default(0)
+  newItems  Int      @default(0) @map("new_items")
+  sent      Int      @default(0)
+  failed    Int      @default(0)
+  durationMs Int     @default(0) @map("duration_ms")
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([job, createdAt])
+  @@map("cron_runs")
+}
