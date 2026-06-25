@@ -58,6 +58,14 @@ model Job {
   sourceFeed String?  @map("source_feed")
   createdAt  DateTime @default(now()) @map("created_at")
 
+  // --- Multi-tenant ownership (nullable: legacy/global rows have no owner) ---
+  userId       String?  @map("user_id") @db.Uuid
+  feedId       String?  @map("feed_id") @db.Uuid
+  // Denormalized from the source feed: true = visible in the public stats page.
+  shareToStats Boolean  @default(true) @map("share_to_stats")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feed         Feed?    @relation(fields: [feedId], references: [id], onDelete: SetNull)
+
   // --- Scalar filter/sort indexes (one per stats facet + time-series) ---
   @@index([extractedDate])
   @@index([postedDate])
@@ -71,6 +79,8 @@ model Job {
   @@index([roleType])
   @@index([experienceYears])
   @@index([salaryMin])
+  @@index([userId])
+  @@index([shareToStats])
   // Time-series-by-category (VelocityStream, CertsBump, heatmaps filtered by facet)
   @@index([extractedDate, industry])
   @@index([extractedDate, seniority])
@@ -106,6 +116,113 @@ model SentUrl {
   @@unique([namespace, url])
   @@index([namespace, expiresAt])
   @@map("sent_urls")
+}
+
+/// A registered account. Owns feeds, channels, GOAT config, and schedules.
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  /// scrypt hash; null for OAuth-only accounts.
+  passwordHash String?  @map("password_hash")
+  name         String?
+  role         String   @default("user") // user | admin
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  accounts   OAuthAccount[]
+  feeds      Feed[]
+  channels   NotificationChannel[]
+  goatConfig GoatConfig?
+  schedules  Schedule[]
+  jobs       Job[]
+
+  @@map("users")
+}
+
+/// Linked OAuth identity (google | github) for an account.
+model OAuthAccount {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  provider       String // google | github
+  providerUserId String @map("provider_user_id")
+  user           User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@map("oauth_accounts")
+}
+
+/// A user's RSS feed. `notify` = push matches to their Telegram; `shareToStats`
+/// = contribute its jobs to the public stats page ("stat rss" vs "personal rss").
+model Feed {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  url          String
+  name         String?
+  notify       Boolean  @default(true)
+  shareToStats Boolean  @default(false) @map("share_to_stats")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs         Job[]
+
+  @@unique([userId, url])
+  @@index([active])
+  @@index([shareToStats])
+  @@map("feeds")
+}
+
+/// A user's Telegram destination. `kind` = main | goat. Bot token AES-GCM encrypted.
+model NotificationChannel {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  kind        String   // main | goat
+  botTokenEnc String   @map("bot_token_enc")
+  chatId      String   @map("chat_id")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind])
+  @@map("notification_channels")
+}
+
+/// Per-user GOAT filter rules (was hardcoded constants in job-monitor).
+model GoatConfig {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @map("user_id") @db.Uuid
+  enabled          Boolean  @default(false)
+  requireIndustry  Boolean  @default(true) @map("require_industry")
+  requireCategory  Boolean  @default(true) @map("require_category")
+  categories       String[] // qualifying role categories
+  industries       String[] // qualifying industries (e.g. Finance)
+  seniorities      String[] // qualifying seniorities (e.g. Mid, Entry)
+  companyBlacklist String[] @map("company_blacklist")
+  vipCompanies     String[] @map("vip_companies")
+  locationTerms    String[] @map("location_terms") // required location substrings
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("goat_configs")
+}
+
+/// A user's schedule for one pipeline. The /api/cron/tick endpoint runs the
+/// ones whose interval has elapsed since lastRunAt.
+model Schedule {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  job              String    // check-jobs | stats-ingest | scrape
+  intervalMinutes  Int       @default(60) @map("interval_minutes")
+  enabled          Boolean   @default(true)
+  lastRunAt        DateTime? @map("last_run_at")
+  // optional params for the scrape job
+  scrapeSearch     String?   @map("scrape_search")
+  scrapeCountries  String?   @map("scrape_countries")
+  scrapeTimeFilter Int?      @map("scrape_time_filter")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, job])
+  @@index([enabled])
+  @@map("schedules")
 }
 
 /// One row per cron/scrape execution — structured run history for tracing.
