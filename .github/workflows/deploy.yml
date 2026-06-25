@@ -58,6 +58,7 @@ jobs:
           script: |
             set -e
             export PATH="/usr/bin:/usr/local/bin:$PATH"
+            export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
             cd "${{ secrets.DEPLOY_PATH }}"
             git fetch --all
             git reset --hard origin/main
