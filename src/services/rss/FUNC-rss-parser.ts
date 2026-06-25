@@ -65,7 +65,6 @@ async function parseSingleFeed(url: string): Promise<JobItem[]> {
       headers,
       // No browser/Next cache layer — we manage staleness ourselves above.
       cache: 'no-store',
-      next: { revalidate: 0 },
     });
 
     // 304 Not Modified — server confirms our cached body is still current.
