@@ -57,14 +57,14 @@ jobs:
           script_stop: true
           script: |
             set -e
+            export PATH="/usr/bin:/usr/local/bin:$PATH"
             cd "${{ secrets.DEPLOY_PATH }}"
             git fetch --all
             git reset --hard origin/main
-            export PNPM_HOME="$HOME/.local/share/pnpm"
-            export PATH="$PNPM_HOME:$PATH"
             pnpm install --frozen-lockfile
             pnpm db:migrate
             pnpm build
-            # Start on first deploy, reload on subsequent ones (zero-downtime).
-            pm2 reload rss-cron-service || pm2 start pnpm --name rss-cron-service -- start
+            # Run Next directly (not `pnpm start`): pnpm 11 re-runs install on
+            # script-run and would crash-loop under pm2.
+            pm2 reload cron-server || pm2 start node_modules/next/dist/bin/next --name cron-server -- start
             pm2 save
