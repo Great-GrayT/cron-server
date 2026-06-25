@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { parseFilters } from "@/lib/FUNC-stats-filters";
+import { getUser } from "@/lib/FUNC-current-user";
 import { jobsList } from "@/db/FUNC-stats-repo";
 
 export const runtime = "nodejs";
@@ -16,7 +17,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const filters = parseFilters(req.nextUrl.searchParams);
-    const data = await jobsList(filters);
+    let userId: string | undefined;
+    if (filters.scope === "me") {
+      const user = getUser(req);
+      if (!user) return NextResponse.json({ error: "unauthorized (scope=me)" }, { status: 401 });
+      userId = user.sub;
+    }
+    const data = await jobsList(filters, userId);
     return NextResponse.json({ success: true, ...data });
   } catch (error) {
     if (error instanceof ZodError) {

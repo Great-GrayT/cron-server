@@ -44,6 +44,10 @@ const filterSchema = z.object({
   // Free-text search over title + company + location + description (trigram).
   q: z.string().max(200).optional(),
 
+  // Scope: "public" = shared-to-stats union across all users (deduped by url);
+  // "me" = the authenticated user's own jobs (route supplies the userId).
+  scope: z.enum(["public", "me"]).default("public"),
+
   // Pagination / sort (jobs list).
   page: z.coerce.number().int().min(1).max(100000).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
@@ -75,9 +79,13 @@ function dateRange(f: StatsFilters): { from?: Date; to?: Date } {
 }
 
 /** Prisma where clause for scalar groupBy / count / findMany. */
-export function wherePrisma(f: StatsFilters): Prisma.JobWhereInput {
+export function wherePrisma(f: StatsFilters, userId?: string): Prisma.JobWhereInput {
   const { from, to } = dateRange(f);
   const where: Prisma.JobWhereInput = {};
+
+  // Scope base: public union vs the user's own jobs.
+  if (f.scope === "me") where.userId = userId;
+  else where.shareToStats = true;
 
   if (from || to) where.extractedDate = { ...(from && { gte: from }), ...(to && { lt: to }) };
   if (f.industry) where.industry = f.industry;
@@ -117,9 +125,13 @@ export function wherePrisma(f: StatsFilters): Prisma.JobWhereInput {
 }
 
 /** Parameterised SQL WHERE fragment for $queryRaw aggregations. */
-export function whereSql(f: StatsFilters): Prisma.Sql {
+export function whereSql(f: StatsFilters, userId?: string): Prisma.Sql {
   const { from, to } = dateRange(f);
   const c: Prisma.Sql[] = [];
+
+  // Scope base.
+  if (f.scope === "me") c.push(Prisma.sql`user_id = ${userId}::uuid`);
+  else c.push(Prisma.sql`share_to_stats = true`);
 
   if (from) c.push(Prisma.sql`extracted_date >= ${from}`);
   if (to) c.push(Prisma.sql`extracted_date < ${to}`);

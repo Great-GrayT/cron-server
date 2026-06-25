@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkAndSendJobs, type JobMonitorConfig } from "@/core/workers/job-monitor";
+import { checkAndSendJobs, defaultGoatRules, type JobMonitorConfig } from "@/core/workers/job-monitor";
 import { verifyCronRequest, ValidationError } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import {
@@ -42,8 +42,7 @@ export async function GET(request: NextRequest) {
       label: "aryan",
       appliedNamespace: "aryan",
       // Aryan GOAT: no industry/category gates — any UK Mid/Entry (or VIP) passes.
-      goatRequireIndustry: false,
-      goatRequireCategory: false,
+      goat: { ...defaultGoatRules(), requireIndustry: false, requireCategory: false },
     };
 
     logger.info("Aryan cron job started");

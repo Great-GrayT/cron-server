@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ingestStatsFromRss } from "@/core/workers/stats-ingest";
-import { getJobCounts, getAggregatedTopStats } from "@/db/FUNC-jobs-repo";
+import { parseFilters } from "@/lib/FUNC-stats-filters";
+import * as stats from "@/db/FUNC-stats-repo";
 import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -8,18 +9,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * GET /api/stats/get
+ * GET /api/stats/get  (legacy single-tenant trigger)
  *
- * Ingests new jobs from the stats RSS feeds into Postgres, then returns summary
- * statistics aggregated across all stored jobs. (Replaces the old R2/Gist read;
- * the per-component stats APIs build on the same Postgres tables.)
+ * Ingests the env stats feeds (system account) into Postgres and returns a
+ * public-scope summary. Superseded by /api/cron/tick + /api/v1/stats/*; kept for
+ * the existing external cron until it's pointed at the tick endpoint.
  */
 export async function GET(_request: NextRequest) {
   try {
     const ingest = await ingestStatsFromRss();
-    const counts = await getJobCounts();
+    const publicFilters = parseFilters(new URLSearchParams("limit=5"));
+    const summary = await stats.summary(publicFilters);
 
-    // Short-circuit: nothing new → skip the heavier aggregation pass.
     if (ingest.newJobs === 0) {
       return NextResponse.json({
         success: true,
@@ -27,27 +28,26 @@ export async function GET(_request: NextRequest) {
         processed: ingest.processed,
         newJobs: 0,
         skippedKnown: ingest.skippedKnown,
-        summary: {
-          totalJobsAllTime: counts.total,
-          currentMonthJobs: counts.currentMonth,
-          storageBackend: "postgres",
-        },
+        summary: { totalJobsAllTime: summary.total, withSalary: summary.withSalary, storageBackend: "postgres" },
       });
     }
 
-    const topStats = await getAggregatedTopStats(5);
+    const [industries, certificates, keywords, seniority, regions, countries] = await Promise.all([
+      stats.facetScalar("industry", publicFilters),
+      stats.facetArray("certificates", publicFilters),
+      stats.facetArray("keywords", publicFilters),
+      stats.facetScalar("seniority", publicFilters),
+      stats.facetScalar("region", publicFilters),
+      stats.facetScalar("country", publicFilters),
+    ]);
 
     return NextResponse.json({
       success: true,
       message: `Processed ${ingest.processed} jobs, added ${ingest.newJobs} new jobs`,
       processed: ingest.processed,
       newJobs: ingest.newJobs,
-      summary: {
-        totalJobsAllTime: counts.total,
-        currentMonthJobs: counts.currentMonth,
-        storageBackend: "postgres",
-      },
-      topStats,
+      summary: { totalJobsAllTime: summary.total, withSalary: summary.withSalary, storageBackend: "postgres" },
+      topStats: { industries, certificates, keywords, seniority, regions, countries },
     });
   } catch (error) {
     logger.error("Error fetching statistics:", error);

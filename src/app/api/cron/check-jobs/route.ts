@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkAndSendJobs } from "@/core/workers/job-monitor";
+import { checkAndSendJobs, defaultMainConfig } from "@/core/workers/job-monitor";
 import { validateEnvironmentVariables, verifyCronRequest } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     validateEnvironmentVariables();
     logger.info("Cron job started");
 
-    const result = await checkAndSendJobs();
+    const result = await checkAndSendJobs(defaultMainConfig());
 
     logger.info("Cron job completed successfully", result);
     return NextResponse.json({ success: true, timestamp: new Date().toISOString(), ...result });

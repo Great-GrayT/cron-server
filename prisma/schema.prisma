@@ -21,8 +21,11 @@ datasource db {
 /// support time-series (extractedDate), filtering (industry/seniority/country),
 /// and search (title/company). Array fields hold the multi-value tags.
 model Job {
-  id            String   @id // stable id from JobMetadataExtractor
-  url           String   @unique // dedup key (was the R2 url-index)
+  id            String   @id @default(uuid()) @db.Uuid
+  // Dedup is per-user now (same posting can belong to several users); see the
+  // @@unique([userId, url]) below. The stable metadata hash lives in `extId`.
+  extId         String?  @map("ext_id")
+  url           String
   title         String
   company       String
   location      String
@@ -87,6 +90,9 @@ model Job {
 
   // --- Array tag GIN indexes: fast `has`/`hasSome` filtering + unnest
   //     aggregation for SkillsWordCloud / Certs / keyword facets ---
+  // Per-user dedup key (same job URL can exist for multiple accounts).
+  @@unique([userId, url])
+
   @@index([keywords], type: Gin)
   @@index([certificates], type: Gin)
   @@index([software], type: Gin)

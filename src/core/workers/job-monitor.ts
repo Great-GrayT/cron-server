@@ -24,98 +24,91 @@ export interface JobMonitorConfig {
   cacheKey: string;
   label: string;
   appliedNamespace: AppliedNamespace;
-  /** When false, jobs of any industry can qualify for GOAT (main pipeline keeps Finance-only). */
-  goatRequireIndustry: boolean;
-  /** When false, the Path-B category check is skipped — Mid/Entry alone passes. */
-  goatRequireCategory: boolean;
+  /** Per-user GOAT eligibility rules. */
+  goat: GoatRules;
 }
 
-const DEFAULT_CONFIG: JobMonitorConfig = {
-  feedUrls: RSS_FEED_URLS,
-  mainBotToken: TELEGRAM_BOT_TOKEN,
-  mainChatId: TELEGRAM_CHAT_ID,
-  goatBotToken: GOAT_TELEGRAM_BOT_TOKEN,
-  goatChatId: GOAT_TELEGRAM_CHAT_ID,
-  cacheKey: "url-rss",
-  label: "main",
-  appliedNamespace: "default",
-  goatRequireIndustry: true,
-  goatRequireCategory: true,
-};
 import { LocationExtractor } from "@/analysis/FUNC-location-extractor";
 import { JobMetadataExtractor } from "@/analysis/FUNC-job-metadata-extractor";
 import { RoleTypeExtractor } from "@/analysis/FUNC-role-type-extractor";
 import { extractJobDetails } from "@/analysis/FUNC-job-analyzer";
 import { getCompanyFromUrl, getCountryFromUrlTLD, resolvePostedDate } from "@/analysis/FUNC-company-location-lookup";
 
-// Categories that qualify a job for the GOAT channel
-const GOAT_CATEGORIES = new Set([
-  "Corporate Finance & Accounting", 
-  "Quantitative Finance",
-  "Private Equity & Venture Capital",
-  "Investment Banking",
-  "Data & Analytics",
-  "Asset & Portfolio Management",
-]);
+// --- GOAT eligibility (per-user configurable rules) ---
 
-// Companies blacklisted from the GOAT channel (case-insensitive substring match)
-const GOAT_COMPANY_BLACKLIST = ["targetjobs", "greenwich", "hackajob","Jobs via eFinancialCareers","Hays"];
+export interface GoatRules {
+  enabled: boolean;
+  requireIndustry: boolean;
+  requireCategory: boolean;
+  categories: string[];
+  industries: string[];
+  seniorities: string[];
+  companyBlacklist: string[];
+  vipCompanies: string[];
+  /** Required location substrings; empty = no location gate. Bare "uk" = word match. */
+  locationTerms: string[];
+}
 
-// Seniority levels that qualify for the GOAT channel
-const GOAT_SENIORITY = new Set(["Mid", "Entry"]);
-// Industry levels that qualify for the GOAT channel
-const GOAT_INDUSTRY = new Set(["Finance"]);
-
-// UK location terms required for all GOAT channel posts
-// "uk" uses word-boundary regex to avoid matching "uk.indeed.com" etc.
-const GOAT_UK_SUBSTRINGS = ["united kingdom", "london", "england", "scotland", "wales", "manchester", "birmingham", "edinburgh", "glasgow", "leeds", "bristol", "liverpool", "sheffield", "newcastle", "cardiff"];
-const GOAT_UK_WORD = /\buk\b/i;
-
-// VIP companies that pass through with just UK + Finance checks
-const GOAT_VIP_COMPANIES = ["marriott", "marriot", "lloyds", "natwest", "metro"];
+/** The original hardcoded main-pipeline GOAT rules (used by the legacy routes). */
+export function defaultGoatRules(): GoatRules {
+  return {
+    enabled: true,
+    requireIndustry: true,
+    requireCategory: true,
+    categories: [
+      "Corporate Finance & Accounting",
+      "Quantitative Finance",
+      "Private Equity & Venture Capital",
+      "Investment Banking",
+      "Data & Analytics",
+      "Asset & Portfolio Management",
+    ],
+    industries: ["Finance"],
+    seniorities: ["Mid", "Entry"],
+    companyBlacklist: ["targetjobs", "greenwich", "hackajob", "Jobs via eFinancialCareers", "Hays"],
+    vipCompanies: ["marriott", "marriot", "lloyds", "natwest", "metro"],
+    locationTerms: [
+      "uk", "united kingdom", "london", "england", "scotland", "wales", "manchester",
+      "birmingham", "edinburgh", "glasgow", "leeds", "bristol", "liverpool", "sheffield",
+      "newcastle", "cardiff",
+    ],
+  };
+}
 
 /**
- * Returns true if the job location, title, or URL TLD indicates a UK location.
+ * True if the job matches any required location term (substring; bare "uk" uses
+ * a word boundary to avoid "uk.indeed.com"), or its URL TLD resolves to the UK.
+ * Empty terms = no location gate.
  */
-function isUKLocation(job: JobItem): boolean {
-  const locationText = (job.location || "").toLowerCase();
-  const titleText = (job.title || "").toLowerCase();
-  const combined = `${locationText} ${titleText}`;
-  if (GOAT_UK_WORD.test(combined)) return true;
-  if (GOAT_UK_SUBSTRINGS.some((term) => combined.includes(term))) return true;
+function locationMatches(job: JobItem, terms: string[]): boolean {
+  if (terms.length === 0) return true;
+  const combined = `${(job.location || "").toLowerCase()} ${(job.title || "").toLowerCase()}`;
+  for (const term of terms) {
+    const t = term.toLowerCase();
+    if (t === "uk") {
+      if (/\buk\b/i.test(combined)) return true;
+    } else if (combined.includes(t)) {
+      return true;
+    }
+  }
   return getCountryFromUrlTLD(job.link) === "United Kingdom";
 }
 
-interface GoatRules {
-  requireIndustry: boolean;
-  requireCategory: boolean;
-}
-
 /**
- * Returns true if the job meets the GOAT channel criteria:
- * 1. UK location or title — mandatory
- * 2. Finance industry — mandatory unless rules.requireIndustry is false
- * 3. Path A: title or company contains a VIP company name
- *    OR
- *    Path B: seniority is Mid/Entry AND
- *            (has CFA/CIMA cert
- *             OR category in GOAT_CATEGORIES  (skipped when rules.requireCategory is false))
+ * Returns true if the job meets the user's GOAT criteria.
+ * location gate → blacklist → industry (optional) → VIP fast-path → seniority →
+ * CFA/CIMA bypass → category (optional).
  */
 function isGoatEligible(job: JobItem, rules: GoatRules): boolean {
-  // UK location/title is mandatory
-  if (!isUKLocation(job)) {
-    return false;
-  }
+  if (!rules.enabled) return false;
+  if (!locationMatches(job, rules.locationTerms)) return false;
 
-  // Reject blacklisted companies
   const companyLower = (job.company || "").toLowerCase();
-  if (GOAT_COMPANY_BLACKLIST.some((name) => companyLower.includes(name))) {
-    return false;
-  }
+  if (rules.companyBlacklist.some((name) => companyLower.includes(name.toLowerCase()))) return false;
 
   const details = extractJobDetails(job.title);
-  const company = details.company !== "N/A" ? details.company : (job.company || getCompanyFromUrl(job.link, job.title) || "");
-
+  const company =
+    details.company !== "N/A" ? details.company : job.company || getCompanyFromUrl(job.link, job.title) || "";
   const metadata = JobMetadataExtractor.extractAllMetadata({
     title: details.position,
     company,
@@ -123,35 +116,20 @@ function isGoatEligible(job: JobItem, rules: GoatRules): boolean {
     url: job.link,
   });
 
-  // Finance industry — optional per rules
-  if (rules.requireIndustry && !GOAT_INDUSTRY.has(metadata.industry)) {
-    return false;
-  }
+  if (rules.requireIndustry && !rules.industries.includes(metadata.industry)) return false;
 
-  // Path A: VIP company match in title or company name
   const titleAndCompany = `${(job.title || "").toLowerCase()} ${companyLower}`;
-  if (GOAT_VIP_COMPANIES.some((name) => titleAndCompany.includes(name))) {
-    return true;
-  }
+  if (rules.vipCompanies.some((name) => titleAndCompany.includes(name.toLowerCase()))) return true;
 
-  // Path B: seniority must be Mid or Entry
-  if (!GOAT_SENIORITY.has(metadata.seniority)) {
-    return false;
-  }
+  if (!rules.seniorities.includes(metadata.seniority)) return false;
 
-  // Path B-1: CFA or CIMA certificate
   const hasBypassCert = metadata.certificates.some((cert) => {
     const c = cert.toLowerCase();
     return c.includes("cfa") || c.includes("cima");
   });
-  if (hasBypassCert) {
-    return true;
-  }
+  if (hasBypassCert) return true;
 
-  // Path B-2: category check is optional — when off, Mid/Entry alone passes.
-  if (!rules.requireCategory) {
-    return true;
-  }
+  if (!rules.requireCategory) return true;
 
   const roleTypeMatch = RoleTypeExtractor.extractRoleType(
     details.position,
@@ -159,8 +137,7 @@ function isGoatEligible(job: JobItem, rules: GoatRules): boolean {
     job.description,
     metadata.industry,
   );
-
-  return roleTypeMatch !== null && GOAT_CATEGORIES.has(roleTypeMatch.category);
+  return roleTypeMatch !== null && rules.categories.includes(roleTypeMatch.category);
 }
 
 // Feed URL that should only send Europe and Canada jobs
@@ -292,9 +269,22 @@ function deduplicateJobs(jobs: JobItem[]): JobItem[] {
 /**
  * Main service for checking RSS feeds and sending job notifications
  */
-export async function checkAndSendJobs(
-  config: JobMonitorConfig = DEFAULT_CONFIG,
-): Promise<CronJobResult> {
+/** Legacy single-tenant main config from env (for /api/cron/check-jobs). */
+export function defaultMainConfig(): JobMonitorConfig {
+  return {
+    feedUrls: RSS_FEED_URLS,
+    mainBotToken: TELEGRAM_BOT_TOKEN,
+    mainChatId: TELEGRAM_CHAT_ID,
+    goatBotToken: GOAT_TELEGRAM_BOT_TOKEN,
+    goatChatId: GOAT_TELEGRAM_CHAT_ID,
+    cacheKey: "url-rss",
+    label: "main",
+    appliedNamespace: "default",
+    goat: defaultGoatRules(),
+  };
+}
+
+export async function checkAndSendJobs(config: JobMonitorConfig): Promise<CronJobResult> {
   logger.info(`Starting job check [${config.label}]...`);
 
   if (!config.mainBotToken || !config.mainChatId) {
@@ -372,10 +362,7 @@ export async function checkAndSendJobs(
     }
 
     // Format messages and pre-compute GOAT eligibility for each job
-    const goatRules: GoatRules = {
-      requireIndustry: config.goatRequireIndustry,
-      requireCategory: config.goatRequireCategory,
-    };
+    const goatRules = config.goat;
     const jobMessages = newJobs.map((job) => ({
       message: formatJobMessage(job, { namespace: config.appliedNamespace }),
       isGoat: isGoatEligible(job, goatRules),

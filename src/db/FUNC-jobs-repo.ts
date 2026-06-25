@@ -16,9 +16,19 @@ function safeDate(value: string | Date | undefined): Date {
   return Number.isNaN(d.getTime()) ? new Date() : d;
 }
 
-function toRow(job: JobStatistic): Prisma.JobCreateManyInput {
+/** Owner context attached to every inserted job (multi-tenant). */
+export interface JobOwner {
+  userId: string;
+  feedId?: string | null;
+  shareToStats: boolean;
+}
+
+function toRow(job: JobStatistic, owner: JobOwner): Prisma.JobCreateManyInput {
   return {
-    id: job.id,
+    extId: job.id, // stable metadata hash (PK is now a uuid)
+    userId: owner.userId,
+    feedId: owner.feedId ?? null,
+    shareToStats: owner.shareToStats,
     url: job.url,
     title: job.title,
     company: job.company,
@@ -46,102 +56,33 @@ function toRow(job: JobStatistic): Prisma.JobCreateManyInput {
   };
 }
 
-/** Batch dedup: which of these URLs already exist? (one indexed query). */
-export async function findExistingUrls(urls: string[]): Promise<Set<string>> {
+/** Batch dedup for one user: which of these URLs do they already have? */
+export async function findExistingUrls(userId: string, urls: string[]): Promise<Set<string>> {
   if (urls.length === 0) return new Set();
   const rows = await prisma.job.findMany({
-    where: { url: { in: urls } },
+    where: { userId, url: { in: urls } },
     select: { url: true },
   });
   return new Set(rows.map((r) => r.url));
 }
 
-/** Insert jobs, skipping any whose URL already exists. Returns inserted count. */
-export async function insertJobs(jobs: JobStatistic[]): Promise<number> {
+/** Insert jobs for an owner, skipping any (userId,url) that already exists. */
+export async function insertJobs(jobs: JobStatistic[], owner: JobOwner): Promise<number> {
   if (jobs.length === 0) return 0;
   const { count } = await prisma.job.createMany({
-    data: jobs.map(toRow),
+    data: jobs.map((j) => toRow(j, owner)),
     skipDuplicates: true,
   });
   return count;
 }
 
-export async function getJobCounts(): Promise<{ total: number; currentMonth: number }> {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const [total, currentMonth] = await Promise.all([
-    prisma.job.count(),
-    prisma.job.count({ where: { extractedDate: { gte: monthStart } } }),
-  ]);
-  return { total, currentMonth };
-}
-
-type Facet = Record<string, number>;
-
-/** Top-N for an indexed scalar column via groupBy. */
-async function topScalar(
-  field: "industry" | "seniority" | "region" | "country",
-  n: number,
-): Promise<Facet> {
-  const rows = await prisma.job.groupBy({
-    by: [field],
-    _count: { _all: true },
-    orderBy: { _count: { [field]: "desc" } },
-    where: { [field]: { not: null } } as Prisma.JobWhereInput,
-    take: n,
+/** The reserved system account that owns legacy/global/backfilled jobs. */
+export async function getSystemUserId(): Promise<string> {
+  const user = await prisma.user.upsert({
+    where: { email: "system@cron.local" },
+    create: { email: "system@cron.local", name: "System", role: "system" },
+    update: {},
+    select: { id: true },
   });
-  const out: Facet = {};
-  for (const r of rows) {
-    const key = (r as Record<string, unknown>)[field];
-    if (typeof key === "string" && key) out[key] = r._count._all;
-  }
-  return out;
-}
-
-// Whitelisted array columns — names are interpolated as raw SQL identifiers,
-// so they must never come from user input.
-const ARRAY_COLUMNS = {
-  keywords: "keywords",
-  certificates: "certificates",
-  software: "software",
-  programmingSkills: "programming_skills",
-  academicDegrees: "academic_degrees",
-} as const;
-type ArrayColumn = keyof typeof ARRAY_COLUMNS;
-
-/** Top-N for a multi-value tag column via unnest over the GIN-indexed array. */
-async function topArray(column: ArrayColumn, n: number): Promise<Facet> {
-  const col = Prisma.raw(`"${ARRAY_COLUMNS[column]}"`);
-  const rows = await prisma.$queryRaw<{ value: string; count: bigint }[]>(
-    Prisma.sql`
-      SELECT unnest(${col}) AS value, COUNT(*)::bigint AS count
-      FROM "jobs"
-      GROUP BY value
-      ORDER BY count DESC
-      LIMIT ${n}
-    `,
-  );
-  const out: Facet = {};
-  for (const r of rows) out[r.value] = Number(r.count);
-  return out;
-}
-
-/** Aggregated top stats for the /api/stats/get summary response. */
-export async function getAggregatedTopStats(n = 5): Promise<{
-  industries: Facet;
-  certificates: Facet;
-  keywords: Facet;
-  seniority: Facet;
-  regions: Facet;
-  countries: Facet;
-}> {
-  const [industries, certificates, keywords, seniority, regions, countries] = await Promise.all([
-    topScalar("industry", n),
-    topArray("certificates", n),
-    topArray("keywords", n),
-    topScalar("seniority", n),
-    topScalar("region", n),
-    topScalar("country", n),
-  ]);
-  return { industries, certificates, keywords, seniority, regions, countries };
+  return user.id;
 }

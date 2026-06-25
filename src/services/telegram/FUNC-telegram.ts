@@ -130,6 +130,32 @@ export async function sendMessagesWithRateLimitTo(
 }
 
 /**
+ * Sends a file (document) to a specific Telegram bot/channel.
+ */
+export async function sendTelegramFileTo(
+  botToken: string,
+  chatId: string,
+  fileBuffer: Buffer,
+  filename: string,
+  caption?: string,
+): Promise<void> {
+  const url = `https://api.telegram.org/bot${botToken}/sendDocument`;
+  const blob = new Blob([new Uint8Array(fileBuffer)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const formData = new FormData();
+  formData.append("chat_id", chatId);
+  formData.append("document", new File([blob], filename, { type: blob.type }));
+  if (caption) formData.append("caption", caption);
+
+  const response = await fetch(url, { method: "POST", body: formData });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new TelegramError(errorData.description || `Failed to send file: ${response.statusText}`, response.status);
+  }
+}
+
+/**
  * Sends a file (document) to Telegram using native FormData (Node.js 18+)
  */
 export async function sendTelegramFile(
