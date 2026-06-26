@@ -12,10 +12,17 @@ this to the frontend agent.
 
 ---
 
+## Live URLs
+
+- **API base (production):** `https://cron.polarislab.ir` — all calls go here, e.g.
+  `https://cron.polarislab.ir/api/v1/stats/summary`. Put it in `NEXT_PUBLIC_API_BASE`.
+- **Frontend origin:** `https://jobcron.vercel.app` (already in the server's
+  `CORS_ALLOW_ORIGINS`).
+- Dev: API at `http://localhost:3000`.
+
 ## 1. API base + auth model
 
-- **API base URL:** all calls go to the server, e.g. `https://YOUR_SERVER/api/...`
-  (dev: `http://localhost:3000`). Put it in an env var, e.g. `NEXT_PUBLIC_API_BASE`.
+- **API base URL:** `https://cron.polarislab.ir` in prod (`NEXT_PUBLIC_API_BASE`).
 - **Auth:** JWT bearer token. After login you receive `{ token, user }`. Store the
   token (localStorage or an httpOnly cookie via your own BFF) and send it on every
   authenticated request:
@@ -37,10 +44,11 @@ this to the frontend agent.
 
 ### OAuth (Google / GitHub)
 
-- Send the user to **`GET /api/auth/oauth/google`** or **`/api/auth/oauth/github`**
-  (full-page navigation, not fetch). The server redirects to the provider.
+- Send the user to **`https://cron.polarislab.ir/api/auth/oauth/google`** or
+  **`/api/auth/oauth/github`** (full-page navigation, not fetch). The server
+  redirects to the provider. *(Only active once `GOOGLE_*`/`GITHUB_*` env vars are set.)*
 - After consent, the server redirects back to:
-  **`${FRONTEND_URL}/auth/callback#token=<jwt>`** (or `#error=<msg>`).
+  **`https://jobcron.vercel.app/auth/callback#token=<jwt>`** (or `#error=<msg>`).
 - Build a `/auth/callback` page that reads the URL **fragment** (`window.location.hash`),
   extracts `token`, stores it, and redirects into the dashboard.
 
@@ -159,10 +167,10 @@ free-text `q` (matches a word inside title/company/location/description);
 
 Response shape: `{ success: true, metric, data }` for stats, `{ success, total, page, pageSize, totalPages, jobs }` for `/jobs`.
 
-> **Coming next (server P3):** a `scope=me` param on the stats endpoints to show
-> the logged-in user's **personal** stats (their own feeds) vs the default public
-> union. Build the Stats page against the public endpoints now; the personal
-> toggle is a small addition later.
+> **Scope (live):** every stats + `/jobs` endpoint takes `scope=public` (default —
+> the shared "stat rss" union across all users, deduped by job URL) or `scope=me`
+> (the logged-in user's own jobs; requires the `Authorization` header). Use
+> `scope=me` for a personal stats view, `public` for the global Stats page.
 
 ---
 
@@ -173,13 +181,9 @@ Response shape: `{ success: true, metric, data }` for stats, `{ success, total, 
 - Dashboard shell with the 5 tabs and all the CRUD above.
 - Re-point the existing Stats page from R2/cloud to `/api/v1/stats/*` + `/api/v1/jobs`.
 
-**Server-side still in progress (don't block on these):**
-- **P2** — per-user pipeline execution via a single cron tick (the schedules you
-  set will actually fire). API surface for the dashboard is already final.
-- **P3** — personal stats scope (`scope=me`).
-- **P4** — one-time backfill of historical jobs from the old system.
-
-None of those change the dashboard API contract above.
+**Server-side: all live.** Per-user cron tick (P2), personal stats scope (P3,
+`scope=me`), and the g2 backfill (P4) are all deployed. The dashboard API
+contract above is final.
 
 ---
 
