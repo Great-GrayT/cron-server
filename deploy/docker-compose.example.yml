@@ -1,0 +1,18 @@
+# Reference only — the REAL file lives on the server at
+#   /srv/apps/<user>/cron-server/docker-compose.yml   (never committed)
+# Fill <user>/<owner>/<container> per the adding-project checklist.
+services:
+  app:
+    image: ghcr.io/<owner>/cron-server:latest   # <owner> lowercase, e.g. great-grayt
+    container_name: <container>                  # e.g. great-grayt-cron-server (must match Caddyfile)
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - web
+    mem_limit: 512m
+    expose:
+      - "3000"
+    pull_policy: always
+networks:
+  web:
+    external: true
