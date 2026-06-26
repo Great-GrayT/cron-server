@@ -1,17 +1,4 @@
-name: Deploy to server
-
-# Deploys this Git repository to a server over SSH on every push to main,
-# following the GitHub Actions -> VPS pattern.
-#
-# Required GitHub repository secrets (Settings -> Secrets and variables -> Actions):
-#   SSH_HOST        - server IP or hostname
-#   SSH_USER        - ssh login user (e.g. deploy)
-#   SSH_KEY         - private SSH key with access to the server (PEM contents)
-#   SSH_PORT        - ssh port (optional, defaults to 22)
-#   DEPLOY_PATH     - absolute path of the repo checkout on the server
-#
-# The app's own runtime secrets (DATABASE_URL, CRON_SECRET, RSS_FEED_URL, ...)
-# live in the server's `.env` file, NOT in this workflow.
+name: Build and Deploy
 
 on:
   push:
@@ -23,48 +10,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 1) Verify the build before touching the server.
-  build-check:
+  build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
-      # pnpm version comes from package.json "packageManager" — don't set it here too.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm build
-        env:
-          # Build does not need a real DB; a placeholder satisfies config parsing.
-          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
 
-  # 2) SSH in, pull, install, migrate, build, and restart via pm2.
-  deploy:
-    needs: build-check
-    runs-on: ubuntu-latest
-    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/great-grayt/cron-server:latest
+            ghcr.io/great-grayt/cron-server:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script_stop: true
           script: |
-            set -e
-            export PATH="/usr/bin:/usr/local/bin:$PATH"
-            export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-            cd "${{ secrets.DEPLOY_PATH }}"
-            git fetch --all
-            git reset --hard origin/main
-            pnpm install --frozen-lockfile
-            pnpm db:migrate
-            pnpm build
-            # Run Next directly (not `pnpm start`): pnpm 11 re-runs install on
-            # script-run and would crash-loop under pm2.
-            pm2 reload cron-server || pm2 start node_modules/next/dist/bin/next --name cron-server -- start
-            pm2 save
+            cd ${{ secrets.APP_DIR }}
+            docker compose pull
+            docker compose run --rm --entrypoint "" app node node_modules/prisma/build/index.js migrate deploy
+            docker compose up -d
+            docker image prune -f

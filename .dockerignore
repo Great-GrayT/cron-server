@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+build
+.git
+.github
+.env
+.env.*
+*.md
+!README.md
+.DS_Store
+npm-debug.log*
+pnpm-debug.log*
+dev-server.log
+the project we are trying to implement to this server

@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Server deploy runs `pnpm build` + `pnpm start` on the VPS (see deploy.yml).
-  // (Avoid `output: "standalone"` — its trace-copy step needs symlink perms that
-  //  Windows blocks during local dev; plain `next start` is portable.)
+  // Standalone is enabled only for Docker builds (DOCKER_BUILD=1 in the Dockerfile).
+  // Local Windows dev avoids it — the trace-copy step needs symlink perms Windows blocks.
+  ...(process.env.DOCKER_BUILD === "1" ? { output: "standalone" } : {}),
   reactStrictMode: true,
   poweredByHeader: false,
   // Prisma / fast-xml-parser are Node-only; keep them out of the bundle traces.
