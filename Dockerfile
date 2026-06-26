@@ -40,10 +40,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 # Prisma migrations + CLI for `docker compose run --rm app … migrate deploy`
+# Prisma 6 generates into @prisma/client (no top-level node_modules/.prisma with pnpm).
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
+RUN node node_modules/prisma/build/index.js generate
 
 USER nextjs
 EXPOSE 3000
