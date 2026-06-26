@@ -39,13 +39,13 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-# Prisma migrations + CLI for `docker compose run --rm app … migrate deploy`
-# Prisma 6 generates into @prisma/client (no top-level node_modules/.prisma with pnpm).
+# Prisma CLI + schema for `docker compose run --rm app … migrate deploy`.
+# pnpm scatters Prisma's engine packages (@prisma/engines, @prisma/get-platform, …)
+# across node_modules/.pnpm, so cherry-picking @prisma + prisma misses them and the
+# CLI can't resolve its engines. Copy the whole tree the builder already resolved —
+# it also carries the client generated during `pnpm build`, so no regenerate is needed.
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
-RUN node node_modules/prisma/build/index.js generate
+COPY --from=builder /app/node_modules ./node_modules
 
 USER nextjs
 EXPOSE 3000
