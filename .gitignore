@@ -10,6 +10,10 @@ next-env.d.ts
 src/generated/
 # Reference copy of the original app being ported — not part of this server
 the project we are trying to implement to this server/
+# Infra docs — they live in the siza-uk-server repo, not this app repo
+adding-project.md
+server-setup-runbook.md
+repo-cluade.md
 .DS_Store
 npm-debug.log*
 pnpm-debug.log*
