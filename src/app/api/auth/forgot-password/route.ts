@@ -4,6 +4,7 @@ import { prisma } from "@/db/client";
 import { createAuthToken } from "@/lib/FUNC-auth-tokens";
 import { sendPasswordResetEmail } from "@/lib/FUNC-email";
 import { frontendUrl } from "@/lib/FUNC-account";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,12 @@ export async function POST(req: Request) {
     // Only password accounts can reset (OAuth-only accounts have no password).
     if (user && user.passwordHash) {
       const token = await createAuthToken(user.id, "password_reset");
-      await sendPasswordResetEmail(user.email, `${frontendUrl()}/reset-password?token=${token}`);
+      try {
+        await sendPasswordResetEmail(user.email, `${frontendUrl()}/reset-password?token=${token}`);
+      } catch (sendErr) {
+        // Don't leak failure to the client, but make it visible in the logs.
+        logger.error("forgot-password: email send failed", sendErr);
+      }
     }
     return NextResponse.json({ ok: true });
   } catch (error) {

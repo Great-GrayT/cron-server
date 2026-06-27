@@ -26,7 +26,9 @@ export interface ProviderConfig {
 }
 
 function redirectBase(): string {
-  return process.env.OAUTH_REDIRECT_BASE ?? "http://localhost:3000";
+  // The provider redirects back to THIS server, so the base must be the server's
+  // public origin. Falls back to APP_BASE_URL so one env covers tracking + OAuth.
+  return process.env.OAUTH_REDIRECT_BASE ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
 }
 
 export function callbackUrl(provider: string): string {

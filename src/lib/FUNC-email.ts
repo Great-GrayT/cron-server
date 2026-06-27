@@ -37,6 +37,7 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   const resend = process.env.RESEND_API_KEY;
 
   if (smtpHost) {
+    logger.info(`[email] sending via SMTP ${smtpHost} to ${to}: ${subject}`);
     await sendSmtpMail(
       {
         host: smtpHost,

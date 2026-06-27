@@ -13,7 +13,7 @@ export const config = {
 };
 
 const WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-const MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 60);
+const MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 240);
 
 interface Bucket {
   count: number;
