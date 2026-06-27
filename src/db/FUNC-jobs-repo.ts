@@ -23,12 +23,10 @@ export interface JobOwner {
   shareToStats: boolean;
 }
 
-function toRow(job: JobStatistic, owner: JobOwner): Prisma.JobCreateManyInput {
+function toJobRow(job: JobStatistic, sharedToStats: boolean): Prisma.JobCreateInput {
   return {
-    extId: job.id, // stable metadata hash (PK is now a uuid)
-    userId: owner.userId,
-    feedId: owner.feedId ?? null,
-    shareToStats: owner.shareToStats,
+    extId: job.id, // stable metadata hash (PK is a uuid)
+    sharedToStats,
     url: job.url,
     title: job.title,
     company: job.company,
@@ -56,21 +54,45 @@ function toRow(job: JobStatistic, owner: JobOwner): Prisma.JobCreateManyInput {
   };
 }
 
-/** Batch dedup for one user: which of these URLs do they already have? */
+/** Batch dedup for one user: which of these URLs are already linked to them? */
 export async function findExistingUrls(userId: string, urls: string[]): Promise<Set<string>> {
   if (urls.length === 0) return new Set();
-  const rows = await prisma.job.findMany({
-    where: { userId, url: { in: urls } },
-    select: { url: true },
+  const rows = await prisma.userJob.findMany({
+    where: { userId, job: { url: { in: urls } } },
+    select: { job: { select: { url: true } } },
   });
-  return new Set(rows.map((r) => r.url));
+  return new Set(rows.map((r) => r.job.url));
 }
 
-/** Insert jobs for an owner, skipping any (userId,url) that already exists. */
+/**
+ * Insert jobs for an owner. Each posting is a single global Job row (deduped by
+ * url); ownership is a UserJob link. Returns the number of NEW links created
+ * (callers pre-filter with findExistingUrls, so that equals jobs added).
+ */
 export async function insertJobs(jobs: JobStatistic[], owner: JobOwner): Promise<number> {
   if (jobs.length === 0) return 0;
-  const { count } = await prisma.job.createMany({
-    data: jobs.map((j) => toRow(j, owner)),
+
+  // Upsert each global Job row, collecting url -> jobId.
+  const jobIdByUrl = new Map<string, string>();
+  for (const j of jobs) {
+    const row = await prisma.job.upsert({
+      where: { url: j.url },
+      create: toJobRow(j, owner.shareToStats),
+      // Never downgrade an already-public job; upgrade it if this owner shares.
+      update: owner.shareToStats ? { sharedToStats: true } : {},
+      select: { id: true },
+    });
+    jobIdByUrl.set(j.url, row.id);
+  }
+
+  // Link them to this user (skip any that somehow already exist).
+  const { count } = await prisma.userJob.createMany({
+    data: jobs.map((j) => ({
+      userId: owner.userId,
+      jobId: jobIdByUrl.get(j.url)!,
+      feedId: owner.feedId ?? null,
+      shareToStats: owner.shareToStats,
+    })),
     skipDuplicates: true,
   });
   return count;

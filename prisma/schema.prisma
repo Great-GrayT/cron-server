@@ -22,10 +22,10 @@ datasource db {
 /// and search (title/company). Array fields hold the multi-value tags.
 model Job {
   id            String   @id @default(uuid()) @db.Uuid
-  // Dedup is per-user now (same posting can belong to several users); see the
-  // @@unique([userId, url]) below. The stable metadata hash lives in `extId`.
+  // One global row per posting (deduped by url). Per-user ownership lives in the
+  // UserJob link table. The stable metadata hash lives in `extId`.
   extId         String?  @map("ext_id")
-  url           String
+  url           String   @unique
   title         String
   company       String
   location      String
@@ -61,13 +61,10 @@ model Job {
   sourceFeed String?  @map("source_feed")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  // --- Multi-tenant ownership (nullable: legacy/global rows have no owner) ---
-  userId       String?  @map("user_id") @db.Uuid
-  feedId       String?  @map("feed_id") @db.Uuid
-  // Denormalized from the source feed: true = visible in the public stats page.
-  shareToStats Boolean  @default(true) @map("share_to_stats")
-  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  feed         Feed?    @relation(fields: [feedId], references: [id], onDelete: SetNull)
+  // Denormalized: true if ANY linking UserJob shares the job to public stats.
+  // Lets the public stats page filter on a single indexed column (no join).
+  sharedToStats Boolean @default(false) @map("shared_to_stats")
+  links         UserJob[]
 
   // --- Scalar filter/sort indexes (one per stats facet + time-series) ---
   @@index([extractedDate])
@@ -82,17 +79,13 @@ model Job {
   @@index([roleType])
   @@index([experienceYears])
   @@index([salaryMin])
-  @@index([userId])
-  @@index([shareToStats])
+  @@index([sharedToStats])
   // Time-series-by-category (VelocityStream, CertsBump, heatmaps filtered by facet)
   @@index([extractedDate, industry])
   @@index([extractedDate, seniority])
 
   // --- Array tag GIN indexes: fast `has`/`hasSome` filtering + unnest
   //     aggregation for SkillsWordCloud / Certs / keyword facets ---
-  // Per-user dedup key (same job URL can exist for multiple accounts).
-  @@unique([userId, url])
-
   @@index([keywords], type: Gin)
   @@index([certificates], type: Gin)
   @@index([software], type: Gin)
@@ -107,6 +100,25 @@ model Job {
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_description_trgm_idx")
 
   @@map("jobs")
+}
+
+/// Links a user (and the feed it came from) to a shared Job row. Per-user
+/// ownership + share-to-stats flag now live here, so one posting is stored once.
+model UserJob {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  jobId        String   @map("job_id") @db.Uuid
+  feedId       String?  @map("feed_id") @db.Uuid
+  shareToStats Boolean  @default(true) @map("share_to_stats")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  feed         Feed?    @relation(fields: [feedId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, jobId])
+  @@index([userId])
+  @@index([jobId])
+  @@map("user_jobs")
 }
 
 /// Dedup ledger for the Telegram pipelines (replaces the R2 UrlCache).
@@ -158,7 +170,7 @@ model User {
   channels    NotificationChannel[]
   goatConfig  GoatConfig?
   schedules   Schedule[]
-  jobs        Job[]
+  userJobs    UserJob[]
   appliedJobs AppliedJob[]
   authTokens  AuthToken[]
 
@@ -228,8 +240,12 @@ model Feed {
   shareToStats Boolean  @default(false) @map("share_to_stats")
   active       Boolean  @default(true)
   createdAt    DateTime @default(now()) @map("created_at")
+  // Last test/send outcome — drives the status dot. null = never run.
+  lastStatus   String?   @map("last_status") // "success" | "fail"
+  lastTestedAt DateTime? @map("last_tested_at")
+  lastError    String?   @map("last_error")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  jobs         Job[]
+  userJobs     UserJob[]
 
   @@unique([userId, url])
   @@index([active])
@@ -239,14 +255,18 @@ model Feed {
 
 /// A user's Telegram destination. `kind` = main | goat. Bot token AES-GCM encrypted.
 model NotificationChannel {
-  id          String   @id @default(uuid()) @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  kind        String   // main | goat
-  botTokenEnc String   @map("bot_token_enc")
-  chatId      String   @map("chat_id")
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at")
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  kind         String   // main | goat
+  botTokenEnc  String   @map("bot_token_enc")
+  chatId       String   @map("chat_id")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  // Last connection-test outcome — drives the status dot. null = never tested.
+  lastStatus   String?   @map("last_status") // "success" | "fail"
+  lastTestedAt DateTime? @map("last_tested_at")
+  lastError    String?   @map("last_error")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, kind])
   @@map("notification_channels")
@@ -284,11 +304,33 @@ model Schedule {
   scrapeSearch     String?   @map("scrape_search")
   scrapeCountries  String?   @map("scrape_countries")
   scrapeTimeFilter Int?      @map("scrape_time_filter")
+  // Last run outcome — drives the status dot. null = never run.
+  lastStatus       String?   @map("last_status") // "success" | "fail"
+  lastError        String?   @map("last_error")
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs             ScheduleRun[]
 
   @@unique([userId, job])
   @@index([enabled])
   @@map("schedules")
+}
+
+/// History of schedule executions (manual "run now" + cron ticks).
+model ScheduleRun {
+  id         String   @id @default(uuid()) @db.Uuid
+  scheduleId String   @map("schedule_id") @db.Uuid
+  schedule   Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  userId     String   @map("user_id") @db.Uuid
+  job        String
+  ok         Boolean  @default(false)
+  summary    String? // human-readable result (JSON-ish)
+  error      String?
+  durationMs Int      @default(0) @map("duration_ms")
+  trigger    String   @default("manual") // manual | cron
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([scheduleId, createdAt])
+  @@map("schedule_runs")
 }
 
 /// One row per cron/scrape execution — structured run history for tracing.

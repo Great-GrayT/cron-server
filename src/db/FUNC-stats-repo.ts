@@ -260,7 +260,7 @@ export async function filterOptions() {
       const col = Prisma.raw(`"${SCALAR_COLUMNS[field]}"`);
       const rows = await prisma.$queryRaw<{ key: string }[]>(Prisma.sql`
         SELECT ${col} AS key FROM "jobs"
-        WHERE share_to_stats = true AND ${col} IS NOT NULL
+        WHERE shared_to_stats = true AND ${col} IS NOT NULL
         GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 200
       `);
       return [field, rows.map((r) => r.key).filter(Boolean)] as const;

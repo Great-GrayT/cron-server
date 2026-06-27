@@ -7,10 +7,23 @@ import {
   type GoatRules,
   type JobMonitorConfig,
 } from "@/core/workers/job-monitor";
-import { ingestUserFeeds } from "@/core/workers/stats-ingest";
+import { ingestUserFeeds, ingestFeeds } from "@/core/workers/stats-ingest";
 import { SentUrlCache } from "@/db/FUNC-dedup-repo";
 import { scrapeLinkedInJobs, createExcelFile } from "@/services/scraper/FUNC-linkedin-scraper";
 import { sendTelegramFileTo, sendTelegramMessageTo } from "@/services/telegram/FUNC-telegram";
+import { parseRSSFeeds } from "@/services/rss/FUNC-rss-parser";
+
+// ---- shared action result shape (test/send/run buttons) ---------------------
+export type LogLevel = "success" | "error" | "warning" | "info";
+export interface LogLine {
+  level: LogLevel;
+  message: string;
+}
+export interface ActionResult {
+  ok: boolean;
+  logs: LogLine[];
+  data?: unknown;
+}
 
 /**
  * Per-user pipeline execution. Each function pulls the user's own feeds,
@@ -134,37 +147,233 @@ export async function runScrapeForUser(userId: string, schedule: ScrapeSchedule)
   return { scraped: jobs.length, sent: newJobs.length };
 }
 
+// ---- status helpers ---------------------------------------------------------
+
+async function setFeedStatus(id: string, ok: boolean, error?: string | null) {
+  await prisma.feed.update({
+    where: { id },
+    data: { lastStatus: ok ? "success" : "fail", lastTestedAt: new Date(), lastError: error ?? null },
+  });
+}
+async function setChannelStatus(id: string, ok: boolean, error?: string | null) {
+  await prisma.notificationChannel.update({
+    where: { id },
+    data: { lastStatus: ok ? "success" : "fail", lastTestedAt: new Date(), lastError: error ?? null },
+  });
+}
+
+// ---- per-channel: test the bot connection -----------------------------------
+
+export async function testChannelConnection(userId: string, channelId: string): Promise<ActionResult> {
+  const logs: LogLine[] = [];
+  const ch = await prisma.notificationChannel.findFirst({ where: { id: channelId, userId } });
+  if (!ch) return { ok: false, logs: [{ level: "error", message: "channel not found" }] };
+
+  let token: string;
+  try {
+    token = decryptSecret(ch.botTokenEnc);
+  } catch {
+    await setChannelStatus(ch.id, false, "token decrypt failed");
+    return { ok: false, logs: [{ level: "error", message: "Failed to decrypt stored bot token" }] };
+  }
+
+  try {
+    const meRes = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const me = (await meRes.json()) as { ok: boolean; result?: { username?: string; first_name?: string }; description?: string };
+    if (!me.ok) {
+      const m = me.description ?? "getMe failed";
+      logs.push({ level: "error", message: `Bot authentication failed: ${m}` });
+      await setChannelStatus(ch.id, false, m);
+      return { ok: false, logs };
+    }
+    logs.push({ level: "success", message: `Bot OK: @${me.result?.username} (${me.result?.first_name})` });
+
+    const sendRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: ch.chatId, text: "✅ JobCron test — this channel is connected." }),
+    });
+    const sent = (await sendRes.json()) as { ok: boolean; description?: string };
+    if (!sent.ok) {
+      const m = sent.description ?? "sendMessage failed";
+      logs.push({ level: "warning", message: `Bot is valid but couldn't post to chat ${ch.chatId}: ${m}` });
+      await setChannelStatus(ch.id, false, m);
+      return { ok: false, logs };
+    }
+    logs.push({ level: "success", message: `Test message delivered to chat ${ch.chatId}` });
+    await setChannelStatus(ch.id, true);
+    return { ok: true, logs };
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    logs.push({ level: "error", message: m });
+    await setChannelStatus(ch.id, false, m);
+    return { ok: false, logs };
+  }
+}
+
+// ---- per-feed: test fetch ---------------------------------------------------
+
+export async function testFeedFetch(userId: string, feedId: string): Promise<ActionResult> {
+  const logs: LogLine[] = [];
+  const feed = await prisma.feed.findFirst({ where: { id: feedId, userId } });
+  if (!feed) return { ok: false, logs: [{ level: "error", message: "feed not found" }] };
+
+  const t0 = Date.now();
+  try {
+    const items = await parseRSSFeeds([feed.url]);
+    const ms = Date.now() - t0;
+    if (items.length === 0) {
+      logs.push({ level: "warning", message: `Feed reachable but returned 0 items (${ms}ms)` });
+      await setFeedStatus(feed.id, true);
+      return { ok: true, logs, data: { count: 0 } };
+    }
+    logs.push({ level: "success", message: `Feed OK — ${items.length} items in ${ms}ms` });
+    for (const it of items.slice(0, 3)) logs.push({ level: "info", message: `• ${it.title}` });
+    await setFeedStatus(feed.id, true);
+    return { ok: true, logs, data: { count: items.length } };
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    logs.push({ level: "error", message: `Fetch failed: ${m}` });
+    await setFeedStatus(feed.id, false, m);
+    return { ok: false, logs };
+  }
+}
+
+// ---- per-feed: send to Telegram now + save to DB ----------------------------
+
+export async function sendFeedNow(userId: string, feedId: string): Promise<ActionResult> {
+  const logs: LogLine[] = [];
+  const [feed, channels, goatConfig] = await Promise.all([
+    prisma.feed.findFirst({ where: { id: feedId, userId } }),
+    loadChannels(userId),
+    prisma.goatConfig.findUnique({ where: { userId } }),
+  ]);
+  if (!feed) return { ok: false, logs: [{ level: "error", message: "feed not found" }] };
+  if (!channels.main) {
+    logs.push({ level: "error", message: "No main Telegram channel — add one in the Telegram tab first" });
+    return { ok: false, logs };
+  }
+
+  try {
+    const result = await checkAndSendJobs({
+      feedUrls: [feed.url],
+      mainBotToken: channels.main.botToken,
+      mainChatId: channels.main.chatId,
+      goatBotToken: channels.goat?.botToken,
+      goatChatId: channels.goat?.chatId,
+      cacheKey: `u:${userId}:rss`,
+      label: `feed:${feed.id}`,
+      appliedNamespace: userId,
+      goat: goatRulesFor(goatConfig),
+    });
+    logs.push({ level: "success", message: `Telegram: ${result.sent} sent, ${result.total} scanned, ${result.failed} failed` });
+
+    const ing = await ingestFeeds(userId, [{ url: feed.url, feedId: feed.id, shareToStats: feed.shareToStats }]);
+    logs.push({ level: "success", message: `Database: ${ing.newJobs} new saved (${ing.skippedKnown} already known)` });
+
+    await setFeedStatus(feed.id, true);
+    return { ok: true, logs, data: { sent: result.sent, saved: ing.newJobs } };
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    logs.push({ level: "error", message: m });
+    await setFeedStatus(feed.id, false, m);
+    return { ok: false, logs };
+  }
+}
+
+// ---- per-schedule: run now + record history ---------------------------------
+
+export async function runScheduleNow(
+  userId: string,
+  scheduleId: string,
+  trigger: "manual" | "cron" = "manual",
+): Promise<ActionResult> {
+  const logs: LogLine[] = [];
+  const sched = await prisma.schedule.findFirst({ where: { id: scheduleId, userId } });
+  if (!sched) return { ok: false, logs: [{ level: "error", message: "schedule not found" }] };
+
+  const t0 = Date.now();
+  let ok = false;
+  let summary = "";
+  let error: string | null = null;
+  try {
+    let result: unknown;
+    if (sched.job === "check-jobs") result = await runCheckJobsForUser(userId);
+    else if (sched.job === "stats-ingest") result = await runStatsIngestForUser(userId);
+    else if (sched.job === "scrape") result = await runScrapeForUser(userId, sched);
+    else throw new Error(`unknown job ${sched.job}`);
+    ok = true;
+    summary = JSON.stringify(result);
+    logs.push({ level: "success", message: `${sched.job} ran: ${summary}` });
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+    logs.push({ level: "error", message: error });
+    logger.error(`schedule ${sched.id} (${sched.job}) failed`, e);
+  }
+  const durationMs = Date.now() - t0;
+
+  await prisma.$transaction([
+    prisma.scheduleRun.create({
+      data: { scheduleId: sched.id, userId, job: sched.job, ok, summary: summary || null, error, durationMs, trigger },
+    }),
+    prisma.schedule.update({
+      where: { id: sched.id },
+      data: { lastRunAt: new Date(), lastStatus: ok ? "success" : "fail", lastError: error },
+    }),
+  ]);
+
+  return { ok, logs, data: { durationMs } };
+}
+
 /**
  * Scheduler tick: run every enabled schedule whose interval has elapsed since
- * lastRunAt. Each run is isolated; lastRunAt advances regardless of outcome so
- * a failing job doesn't hammer on every tick.
+ * lastRunAt. Each run records a ScheduleRun + updates status (via runScheduleNow).
  */
 export async function runDueSchedules(): Promise<{ ran: number; results: unknown[] }> {
   const now = Date.now();
   const schedules = await prisma.schedule.findMany({ where: { enabled: true } });
-
   const due = schedules.filter(
     (s) => !s.lastRunAt || now - s.lastRunAt.getTime() >= s.intervalMinutes * 60_000,
   );
 
   const results: unknown[] = [];
   for (const s of due) {
-    try {
-      let result: unknown;
-      if (s.job === "check-jobs") result = await runCheckJobsForUser(s.userId);
-      else if (s.job === "stats-ingest") result = await runStatsIngestForUser(s.userId);
-      else if (s.job === "scrape") result = await runScrapeForUser(s.userId, s);
-      else result = { skipped: `unknown job ${s.job}` };
-      results.push({ scheduleId: s.id, userId: s.userId, job: s.job, ok: true, result });
-    } catch (error) {
-      logger.error(`schedule ${s.id} (${s.job}) failed`, error);
-      results.push({ scheduleId: s.id, job: s.job, ok: false, error: String(error) });
-    } finally {
-      await prisma.schedule.update({ where: { id: s.id }, data: { lastRunAt: new Date() } });
-    }
+    const r = await runScheduleNow(s.userId, s.id, "cron");
+    results.push({ scheduleId: s.id, job: s.job, ok: r.ok });
   }
-
   return { ran: due.length, results };
+}
+
+/**
+ * Trim run-history tables so they don't grow unbounded. Keeps the last 30 days
+ * of ScheduleRun + CronRun rows (history mini-page only ever shows the last 20).
+ * Called from the cron tick.
+ */
+export async function pruneRunHistory(days = 30): Promise<{ scheduleRuns: number; cronRuns: number }> {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const [sr, cr] = await prisma.$transaction([
+    prisma.scheduleRun.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+    prisma.cronRun.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+  ]);
+  if (sr.count || cr.count) {
+    logger.info(`pruned run history: ${sr.count} schedule runs, ${cr.count} cron runs older than ${days}d`);
+  }
+  return { scheduleRuns: sr.count, cronRuns: cr.count };
+}
+
+/**
+ * Drop the heavy `description` text from jobs older than `months` (default 6).
+ * All analytical fields (title, dates, industry, keywords, salary, …) are kept
+ * forever for the time-series stats; only the big text blob is cleared.
+ */
+export async function pruneOldDescriptions(months = 6): Promise<number> {
+  const cutoff = new Date(Date.now() - months * 30 * 24 * 60 * 60 * 1000);
+  const res = await prisma.job.updateMany({
+    where: { extractedDate: { lt: cutoff }, NOT: { description: "" } },
+    data: { description: "" },
+  });
+  if (res.count > 0) logger.info(`cleared ${res.count} job descriptions older than ${months} months`);
+  return res.count;
 }
 
 /**

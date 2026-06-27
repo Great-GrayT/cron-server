@@ -83,9 +83,9 @@ export function wherePrisma(f: StatsFilters, userId?: string): Prisma.JobWhereIn
   const { from, to } = dateRange(f);
   const where: Prisma.JobWhereInput = {};
 
-  // Scope base: public union vs the user's own jobs.
-  if (f.scope === "me") where.userId = userId;
-  else where.shareToStats = true;
+  // Scope base: public union (shared jobs) vs the user's own linked jobs.
+  if (f.scope === "me") where.links = { some: { userId } };
+  else where.sharedToStats = true;
 
   if (from || to) where.extractedDate = { ...(from && { gte: from }), ...(to && { lt: to }) };
   if (f.industry) where.industry = f.industry;
@@ -129,9 +129,11 @@ export function whereSql(f: StatsFilters, userId?: string): Prisma.Sql {
   const { from, to } = dateRange(f);
   const c: Prisma.Sql[] = [];
 
-  // Scope base.
-  if (f.scope === "me") c.push(Prisma.sql`user_id = ${userId}::uuid`);
-  else c.push(Prisma.sql`share_to_stats = true`);
+  // Scope base. `id` resolves to the outer jobs row regardless of its alias;
+  // the subquery is uncorrelated (just the user's linked job ids).
+  if (f.scope === "me")
+    c.push(Prisma.sql`id IN (SELECT uj.job_id FROM "user_jobs" uj WHERE uj.user_id = ${userId}::uuid)`);
+  else c.push(Prisma.sql`shared_to_stats = true`);
 
   if (from) c.push(Prisma.sql`extracted_date >= ${from}`);
   if (to) c.push(Prisma.sql`extracted_date < ${to}`);
