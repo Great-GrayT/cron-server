@@ -7,10 +7,13 @@
  * is a separate concern outside this milestone.
  */
 
-export type AppliedNamespace = "default" | "aryan";
+// A tracking-link namespace is now the owning user's id (the per-user applied
+// store). "default" is kept as a backward-compatible fallback for links issued
+// before per-user tracking; any non-empty string is a valid namespace.
+export type AppliedNamespace = string;
 
 export function isAppliedNamespace(value: string | null | undefined): value is AppliedNamespace {
-  return value === "default" || value === "aryan";
+  return typeof value === "string" && value.length > 0;
 }
 
 export interface AppliedJob {

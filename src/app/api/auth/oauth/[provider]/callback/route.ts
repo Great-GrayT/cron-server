@@ -38,9 +38,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ provider
     if (!user) {
       user = await prisma.user.findUnique({ where: { email: profile.email } });
       if (!user) {
+        // OAuth provider already verified this email, so the account is active.
         user = await prisma.user.create({
-          data: { email: profile.email, name: profile.name },
+          data: { email: profile.email, name: profile.name, emailVerified: true },
         });
+      } else if (!user.emailVerified) {
+        // Linking OAuth to an existing unverified account verifies it.
+        user = await prisma.user.update({ where: { id: user.id }, data: { emailVerified: true } });
       }
       await prisma.oAuthAccount.create({
         data: { userId: user.id, provider, providerUserId: profile.providerUserId },

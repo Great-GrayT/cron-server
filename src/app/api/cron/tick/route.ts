@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCronRequest } from "@/lib/validation";
-import { runDueSchedules } from "@/core/workers/run-user";
+import { runDueSchedules, purgeUnverifiedUsers } from "@/core/workers/run-user";
 import { logger } from "@/lib/logger";
 
 /**
@@ -21,8 +21,9 @@ export async function GET(request: NextRequest) {
   }
   try {
     const result = await runDueSchedules();
-    logger.info("cron tick complete", { ran: result.ran });
-    return NextResponse.json({ success: true, timestamp: new Date().toISOString(), ...result });
+    const purgedUnverified = await purgeUnverifiedUsers().catch(() => 0);
+    logger.info("cron tick complete", { ran: result.ran, purgedUnverified });
+    return NextResponse.json({ success: true, timestamp: new Date().toISOString(), purgedUnverified, ...result });
   } catch (error) {
     logger.error("cron tick error", error);
     return NextResponse.json(

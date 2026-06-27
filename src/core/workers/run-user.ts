@@ -83,7 +83,8 @@ export async function runCheckJobsForUser(userId: string) {
     goatChatId: channels.goat?.chatId,
     cacheKey: `u:${userId}:rss`,
     label: `user:${userId}`,
-    appliedNamespace: "default",
+    // Tracking links record applications into this user's own applied store.
+    appliedNamespace: userId,
     goat: goatRulesFor(goatConfig),
   };
   return checkAndSendJobs(config);
@@ -164,6 +165,19 @@ export async function runDueSchedules(): Promise<{ ran: number; results: unknown
   }
 
   return { ran: due.length, results };
+}
+
+/**
+ * Delete accounts that never verified their email within 7 days. Keeps the
+ * users table free of abandoned/spam signups. Called from the cron tick.
+ */
+export async function purgeUnverifiedUsers(): Promise<number> {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const res = await prisma.user.deleteMany({
+    where: { emailVerified: false, createdAt: { lt: cutoff } },
+  });
+  if (res.count > 0) logger.info(`purged ${res.count} unverified user(s) older than 7 days`);
+  return res.count;
 }
 
 // Notify a user's main channel of an error (best-effort helper for routes).

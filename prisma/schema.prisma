@@ -128,21 +128,81 @@ model SentUrl {
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique
+  /// Optional unique handle; can be used to log in instead of email.
+  username     String?  @unique
   /// scrypt hash; null for OAuth-only accounts.
   passwordHash String?  @map("password_hash")
   name         String?
   role         String   @default("user") // user | admin
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  accounts   OAuthAccount[]
-  feeds      Feed[]
-  channels   NotificationChannel[]
-  goatConfig GoatConfig?
-  schedules  Schedule[]
-  jobs       Job[]
+  // Extended profile.
+  firstName      String? @map("first_name")
+  lastName       String? @map("last_name")
+  phoneDialCode  String? @map("phone_dial_code")
+  phoneNumber    String? @map("phone_number")
+  mobileDialCode String? @map("mobile_dial_code")
+  mobileNumber   String? @map("mobile_number")
+  speciality     String?
+  country        String?
+  city           String?
+
+  /// Email ownership confirmed via the verification link. Login is blocked until
+  /// true; unverified accounts older than 7 days are purged by the cron tick.
+  emailVerified Boolean  @default(false) @map("email_verified")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  accounts    OAuthAccount[]
+  feeds       Feed[]
+  channels    NotificationChannel[]
+  goatConfig  GoatConfig?
+  schedules   Schedule[]
+  jobs        Job[]
+  appliedJobs AppliedJob[]
+  authTokens  AuthToken[]
 
   @@map("users")
+}
+
+/// Single-use, hashed tokens for email verification + password reset.
+model AuthToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // "email_verify" | "password_reset"
+  tokenHash String   @map("token_hash") // sha256 of the raw token sent by email
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, type])
+  @@index([tokenHash])
+  @@map("auth_tokens")
+}
+
+/// A job the user marked as applied by clicking the signed "Apply here" tracking
+/// link in their Telegram. Per-user (replaces the old default/aryan R2 stores).
+model AppliedJob {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobId      String    @map("job_id") // md5(url) hash from the tracking link
+  jobUrl     String    @map("job_url")
+  title      String
+  company    String
+  location   String
+  city       String?
+  country    String?
+  region     String?
+  postedDate DateTime? @map("posted_date")
+  roleType   String?   @map("role_type")
+  industry   String?
+  appliedAt  DateTime  @default(now()) @map("applied_at")
+
+  // One row per (user, job): clicking the same link again just updates the time.
+  @@unique([userId, jobId])
+  @@index([userId, appliedAt])
+  @@map("applied_jobs")
 }
 
 /// Linked OAuth identity (google | github) for an account.
