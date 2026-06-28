@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyJwt, type JwtPayload } from "@/lib/FUNC-auth";
+import { prisma } from "@/db/client";
 
 /**
  * Request authentication helper for the dashboard (`/api/me/*`) routes.
@@ -21,6 +22,24 @@ export function requireUser(req: Request): { user: JwtPayload } | { response: Ne
   const user = getUser(req);
   if (!user) {
     return { response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  }
+  return { user };
+}
+
+/**
+ * Admin gate. Re-checks the role in the DB (not just the JWT) so promoting a
+ * user to admin via a manual DB flag takes effect without forcing a re-login.
+ */
+export async function requireAdmin(
+  req: Request,
+): Promise<{ user: JwtPayload } | { response: NextResponse }> {
+  const user = getUser(req);
+  if (!user) {
+    return { response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  }
+  const row = await prisma.user.findUnique({ where: { id: user.sub }, select: { role: true } });
+  if (row?.role !== "admin") {
+    return { response: NextResponse.json({ error: "forbidden (admin only)" }, { status: 403 }) };
   }
   return { user };
 }

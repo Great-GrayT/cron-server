@@ -2,12 +2,21 @@ import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { prisma } from "@/db/client";
 import { requireUser } from "@/lib/FUNC-current-user";
+import { isValidCron } from "@/lib/FUNC-cron";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const patchSchema = z.object({
   intervalMinutes: z.coerce.number().int().min(5).max(10080).optional(),
+  cronExpr: z
+    .string()
+    .max(120)
+    .nullable()
+    .optional()
+    .refine((v) => v === undefined || v === null || v === "" || isValidCron(v), {
+      message: "invalid 5-field cron expression",
+    }),
   enabled: z.boolean().optional(),
   scrapeSearch: z.string().max(500).nullable().optional(),
   scrapeCountries: z.string().max(500).nullable().optional(),

@@ -162,19 +162,49 @@ model User {
   /// true; unverified accounts older than 7 days are purged by the cron tick.
   emailVerified Boolean  @default(false) @map("email_verified")
 
+  // Profile picture: avatarUrl = Google/external URL; avatarData = uploaded
+  // base64 data URL (stored in-DB per product decision).
+  avatarUrl  String? @map("avatar_url")
+  avatarData String? @map("avatar_data") @db.Text
+
+  // Page keys this user is banned from (admin-managed). e.g. ["stats","applied"].
+  revokedPages String[] @map("revoked_pages")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  accounts    OAuthAccount[]
-  feeds       Feed[]
-  channels    NotificationChannel[]
-  goatConfig  GoatConfig?
-  schedules   Schedule[]
-  userJobs    UserJob[]
-  appliedJobs AppliedJob[]
-  authTokens  AuthToken[]
+  accounts         OAuthAccount[]
+  feeds            Feed[]
+  channels         NotificationChannel[]
+  goatConfig       GoatConfig?
+  schedules        Schedule[]
+  userJobs         UserJob[]
+  appliedJobs      AppliedJob[]
+  authTokens       AuthToken[]
+  messagesSent     Message[] @relation("MessagesSent")
+  messagesReceived Message[] @relation("MessagesReceived")
 
   @@map("users")
+}
+
+/// Direct messages: user -> admin (toAdmin=true, toUserId null) or user -> user
+/// (toUserId set). Replies are just new rows in the other direction.
+model Message {
+  id         String    @id @default(uuid()) @db.Uuid
+  fromUserId String    @map("from_user_id") @db.Uuid
+  toUserId   String?   @map("to_user_id") @db.Uuid
+  toAdmin    Boolean   @default(false) @map("to_admin")
+  subject    String?
+  body       String    @db.Text
+  readAt     DateTime? @map("read_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  from       User      @relation("MessagesSent", fields: [fromUserId], references: [id], onDelete: Cascade)
+  to         User?     @relation("MessagesReceived", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([toUserId, createdAt])
+  @@index([fromUserId, createdAt])
+  @@index([toAdmin, createdAt])
+  @@map("messages")
 }
 
 /// Single-use, hashed tokens for email verification + password reset.
@@ -298,6 +328,8 @@ model Schedule {
   userId           String    @map("user_id") @db.Uuid
   job              String    // check-jobs | stats-ingest | scrape
   intervalMinutes  Int       @default(60) @map("interval_minutes")
+  // Optional 5-field cron ("m h dom mon dow"); when set it overrides interval.
+  cronExpr         String?   @map("cron_expr")
   enabled          Boolean   @default(true)
   lastRunAt        DateTime? @map("last_run_at")
   // optional params for the scrape job

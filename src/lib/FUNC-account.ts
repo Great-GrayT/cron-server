@@ -20,6 +20,9 @@ export const PUBLIC_USER_SELECT = {
   country: true,
   city: true,
   emailVerified: true,
+  avatarUrl: true,
+  avatarData: true,
+  revokedPages: true,
 } satisfies Prisma.UserSelect;
 
 /** Optional extended-profile fields, shared by register + profile update. */
@@ -39,6 +42,9 @@ export const profileSchema = z.object({
   speciality: z.string().max(120).optional(),
   country: z.string().max(120).optional(),
   city: z.string().max(120).optional(),
+  avatarUrl: z.string().max(2000).optional(),
+  // Uploaded base64 data URL — capped (~5MB of base64).
+  avatarData: z.string().max(7_000_000).optional(),
 });
 
 export type ProfileInput = z.infer<typeof profileSchema>;

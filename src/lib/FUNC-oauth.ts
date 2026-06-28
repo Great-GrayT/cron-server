@@ -13,6 +13,7 @@ export interface OAuthProfile {
   providerUserId: string;
   email: string;
   name: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface ProviderConfig {
@@ -55,8 +56,8 @@ export function getProvider(id: string): ProviderConfig | null {
         const res = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        const j = (await res.json()) as { id: string; email: string; name?: string };
-        return { providerUserId: String(j.id), email: j.email.toLowerCase(), name: j.name ?? null };
+        const j = (await res.json()) as { id: string; email: string; name?: string; picture?: string };
+        return { providerUserId: String(j.id), email: j.email.toLowerCase(), name: j.name ?? null, avatarUrl: j.picture ?? null };
       },
     };
   }
@@ -78,6 +79,7 @@ export function getProvider(id: string): ProviderConfig | null {
           login: string;
           name?: string;
           email?: string | null;
+          avatar_url?: string;
         };
         let email = u.email ?? null;
         if (!email) {
@@ -89,7 +91,7 @@ export function getProvider(id: string): ProviderConfig | null {
           email = emails.find((e) => e.primary && e.verified)?.email ?? emails[0]?.email ?? null;
         }
         if (!email) throw new Error("GitHub account has no usable email");
-        return { providerUserId: String(u.id), email: email.toLowerCase(), name: u.name ?? u.login };
+        return { providerUserId: String(u.id), email: email.toLowerCase(), name: u.name ?? u.login, avatarUrl: u.avatar_url ?? null };
       },
     };
   }

@@ -2,13 +2,22 @@ import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { prisma } from "@/db/client";
 import { requireUser } from "@/lib/FUNC-current-user";
+import { isValidCron } from "@/lib/FUNC-cron";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const cronField = z
+  .string()
+  .max(120)
+  .nullable()
+  .optional()
+  .refine((v) => !v || isValidCron(v), { message: "invalid 5-field cron expression" });
+
 const upsertSchema = z.object({
   job: z.enum(["check-jobs", "stats-ingest", "scrape"]),
   intervalMinutes: z.coerce.number().int().min(5).max(10080).default(60),
+  cronExpr: cronField,
   enabled: z.boolean().default(true),
   scrapeSearch: z.string().max(500).nullable().optional(),
   scrapeCountries: z.string().max(500).nullable().optional(),

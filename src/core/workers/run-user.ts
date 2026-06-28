@@ -12,6 +12,7 @@ import { SentUrlCache } from "@/db/FUNC-dedup-repo";
 import { scrapeLinkedInJobs, createExcelFile } from "@/services/scraper/FUNC-linkedin-scraper";
 import { sendTelegramFileTo, sendTelegramMessageTo } from "@/services/telegram/FUNC-telegram";
 import { parseRSSFeeds } from "@/services/rss/FUNC-rss-parser";
+import { matchesCron } from "@/lib/FUNC-cron";
 
 // ---- shared action result shape (test/send/run buttons) ---------------------
 export type LogLevel = "success" | "error" | "warning" | "info";
@@ -331,10 +332,16 @@ export async function runScheduleNow(
  */
 export async function runDueSchedules(): Promise<{ ran: number; results: unknown[] }> {
   const now = Date.now();
+  const nowDate = new Date(now);
   const schedules = await prisma.schedule.findMany({ where: { enabled: true } });
-  const due = schedules.filter(
-    (s) => !s.lastRunAt || now - s.lastRunAt.getTime() >= s.intervalMinutes * 60_000,
-  );
+  const due = schedules.filter((s) => {
+    // Cron expression takes precedence: due when the current minute matches and
+    // it hasn't already run this minute.
+    if (s.cronExpr && s.cronExpr.trim()) {
+      return matchesCron(s.cronExpr, nowDate) && (!s.lastRunAt || now - s.lastRunAt.getTime() >= 60_000);
+    }
+    return !s.lastRunAt || now - s.lastRunAt.getTime() >= s.intervalMinutes * 60_000;
+  });
 
   const results: unknown[] = [];
   for (const s of due) {
