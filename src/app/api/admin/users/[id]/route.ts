@@ -29,6 +29,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   try {
     const data = patchSchema.parse(await req.json());
+
+    // Don't allow demoting the last remaining admin (lockout protection).
+    if (data.role === "user") {
+      const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+      if (target?.role === "admin") {
+        const adminCount = await prisma.user.count({ where: { role: "admin" } });
+        if (adminCount <= 1) {
+          return NextResponse.json({ error: "cannot demote the last admin" }, { status: 400 });
+        }
+      }
+    }
+
     const user = await prisma.user.update({
       where: { id },
       data,
