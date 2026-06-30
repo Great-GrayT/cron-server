@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { prisma } from "@/db/client";
 import { requireAdmin } from "@/lib/FUNC-current-user";
-import { adminUserDetail } from "@/db/FUNC-admin-repo";
+import { adminUserDetail, deleteUserAndReassignFeeds } from "@/db/FUNC-admin-repo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,4 +53,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     return NextResponse.json({ error: "update failed" }, { status: 500 });
   }
+}
+
+/**
+ * DELETE /api/admin/users/{id} — permanently delete a user. Their RSS feeds are
+ * reassigned to the oldest admin (and made public); everything else is cascaded.
+ */
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin(req);
+  if ("response" in auth) return auth.response;
+  const { id } = await params;
+  if (id === auth.user.sub) {
+    return NextResponse.json({ error: "you cannot delete your own account here" }, { status: 400 });
+  }
+  const result = await deleteUserAndReassignFeeds(id);
+  if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 });
+  return NextResponse.json(result);
 }

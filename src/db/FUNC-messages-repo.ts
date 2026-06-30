@@ -72,6 +72,12 @@ export async function unreadCount(userId: string, isAdmin: boolean): Promise<num
   });
 }
 
+/** Hard-delete a message by id (admin only — enforced at the route). */
+export async function deleteMessage(id: string): Promise<number> {
+  const res = await prisma.message.deleteMany({ where: { id } });
+  return res.count;
+}
+
 export async function markRead(userId: string, isAdmin: boolean, id: string): Promise<number> {
   const res = await prisma.message.updateMany({
     where: {
