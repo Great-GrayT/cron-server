@@ -345,8 +345,11 @@ const TICK_LOCK_ID = 1;
 export async function runDueSchedules(): Promise<{ ran: number; results: unknown[] }> {
   return prisma.$transaction(
     async (tx) => {
+      // Cast to int4: Prisma binds JS numbers as bigint, but the two-arg lock
+      // overload is pg_try_advisory_xact_lock(int, int) — without the casts
+      // Postgres looks for a (bigint, bigint) overload that doesn't exist.
       const rows = await tx.$queryRaw<{ locked: boolean }[]>`
-        SELECT pg_try_advisory_xact_lock(${TICK_LOCK_NS}, ${TICK_LOCK_ID}) AS locked
+        SELECT pg_try_advisory_xact_lock(${TICK_LOCK_NS}::int, ${TICK_LOCK_ID}::int) AS locked
       `;
       if (!rows[0]?.locked) return { ran: 0, results: [] };
       return runDueSchedulesInner();
