@@ -284,6 +284,18 @@ export async function sendFeedNow(userId: string, feedId: string): Promise<Actio
 
 // ---- per-schedule: run now + record history ---------------------------------
 
+/**
+ * Compact a job result for storage in ScheduleRun.summary. Arrays (e.g.
+ * check-jobs' `pubDates`, one entry per job) are collapsed to a count so the
+ * history row stays a few dozen bytes instead of kilobytes per run — otherwise
+ * the run-history table balloons. Scalar fields (total/sent/failed/…) are kept.
+ */
+function compactSummary(result: unknown): string {
+  return JSON.stringify(result, (_key, value) =>
+    Array.isArray(value) ? { count: value.length } : value,
+  );
+}
+
 export async function runScheduleNow(
   userId: string,
   scheduleId: string,
@@ -304,7 +316,7 @@ export async function runScheduleNow(
     else if (sched.job === "scrape") result = await runScrapeForUser(userId, sched);
     else throw new Error(`unknown job ${sched.job}`);
     ok = true;
-    summary = JSON.stringify(result);
+    summary = compactSummary(result);
     logs.push({ level: "success", message: `${sched.job} ran: ${summary}` });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
