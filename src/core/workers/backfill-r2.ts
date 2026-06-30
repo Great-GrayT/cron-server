@@ -1,5 +1,5 @@
 import { getManifest, getNDJSONGzipped } from "@/services/r2/FUNC-r2-reader";
-import { getSystemUserId, insertJobs } from "@/db/FUNC-jobs-repo";
+import { getAdminUserId, insertJobs } from "@/db/FUNC-jobs-repo";
 import { logger } from "@/lib/logger";
 import type { JobRegion, JobStatistic, SalaryData } from "@/types/stats";
 
@@ -8,7 +8,7 @@ import type { JobRegion, JobStatistic, SalaryData } from "@/types/stats";
  * into Postgres, attributed to the system account and shared to public stats.
  *
  * Reads the R2 manifest, then each day's gzipped metadata NDJSON, maps it to a
- * JobStatistic, and inserts (deduped per system user). Description text is not
+ * JobStatistic, and inserts owned by the Admin account. Description text is not
  * backfilled (it lived in separate heavy files); stats/facets don't need it.
  */
 
@@ -82,7 +82,7 @@ export async function backfillFromR2(): Promise<BackfillResult> {
   const manifest = await getManifest();
   if (!manifest) throw new Error("No manifest.json found in R2 bucket.");
 
-  const userId = await getSystemUserId();
+  const userId = await getAdminUserId();
   const result: BackfillResult = { months: 0, days: 0, read: 0, inserted: 0 };
 
   for (const month of manifest.availableMonths) {

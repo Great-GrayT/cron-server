@@ -443,8 +443,7 @@ export async function pruneOldDescriptions(months = 6): Promise<number> {
 export async function purgeUnverifiedUsers(): Promise<number> {
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const res = await prisma.user.deleteMany({
-    // Only real signups — never the system/admin accounts.
-    where: { role: "user", emailVerified: false, createdAt: { lt: cutoff } },
+    where: { emailVerified: false, createdAt: { lt: cutoff } },
   });
   if (res.count > 0) logger.info(`purged ${res.count} unverified user(s) older than 7 days`);
   return res.count;

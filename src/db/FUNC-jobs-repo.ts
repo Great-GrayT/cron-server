@@ -98,13 +98,23 @@ export async function insertJobs(jobs: JobStatistic[], owner: JobOwner): Promise
   return count;
 }
 
-/** The reserved system account that owns legacy/global/backfilled jobs. */
+/** The reserved system account that owns legacy/global ingest jobs. */
 export async function getSystemUserId(): Promise<string> {
   const user = await prisma.user.upsert({
     where: { email: "system@cron.local" },
-    // emailVerified:true so the unverified-user purge never deletes it.
-    create: { email: "system@cron.local", name: "System", role: "system", emailVerified: true },
-    update: { emailVerified: true, role: "system" },
+    create: { email: "system@cron.local", name: "System", role: "system" },
+    update: {},
+    select: { id: true },
+  });
+  return user.id;
+}
+
+/** The Admin account that owns the g2 backfilled jobs. */
+export async function getAdminUserId(): Promise<string> {
+  const user = await prisma.user.upsert({
+    where: { email: "admin@cron.local" },
+    create: { email: "admin@cron.local", name: "Admin", role: "admin", emailVerified: true },
+    update: {},
     select: { id: true },
   });
   return user.id;
