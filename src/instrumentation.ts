@@ -8,12 +8,15 @@
  * Telegram/RSS jobs on every code reload.
  */
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // Import must stay nested in this positive node-runtime check. On the edge
+  // compile `process.env.NEXT_RUNTIME` folds to "edge", the branch is dropped,
+  // and webpack never bundles the node-only scheduler graph (node:net/dns).
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const enabled =
+      process.env.NODE_ENV === "production" || process.env.SCHEDULER_ENABLED === "1";
+    if (!enabled) return;
 
-  const enabled =
-    process.env.NODE_ENV === "production" || process.env.SCHEDULER_ENABLED === "1";
-  if (!enabled) return;
-
-  const { startScheduler } = await import("@/core/workers/scheduler");
-  startScheduler();
+    const { startScheduler } = await import("@/core/workers/scheduler");
+    startScheduler();
+  }
 }
