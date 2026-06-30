@@ -102,8 +102,9 @@ export async function insertJobs(jobs: JobStatistic[], owner: JobOwner): Promise
 export async function getSystemUserId(): Promise<string> {
   const user = await prisma.user.upsert({
     where: { email: "system@cron.local" },
-    create: { email: "system@cron.local", name: "System", role: "system" },
-    update: {},
+    // emailVerified:true so the unverified-user purge never deletes it.
+    create: { email: "system@cron.local", name: "System", role: "system", emailVerified: true },
+    update: { emailVerified: true, role: "system" },
     select: { id: true },
   });
   return user.id;
