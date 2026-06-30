@@ -405,11 +405,11 @@ async function runDueSchedulesInner(): Promise<{ ran: number; results: unknown[]
 }
 
 /**
- * Trim run-history tables so they don't grow unbounded. Keeps the last 30 days
+ * Trim run-history tables so they don't grow unbounded. Keeps the last 7 days
  * of ScheduleRun + CronRun rows (history mini-page only ever shows the last 20).
- * Called from the cron tick.
+ * Called from the scheduler's hourly housekeeping.
  */
-export async function pruneRunHistory(days = 30): Promise<{ scheduleRuns: number; cronRuns: number }> {
+export async function pruneRunHistory(days = 7): Promise<{ scheduleRuns: number; cronRuns: number }> {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const [sr, cr] = await prisma.$transaction([
     prisma.scheduleRun.deleteMany({ where: { createdAt: { lt: cutoff } } }),
