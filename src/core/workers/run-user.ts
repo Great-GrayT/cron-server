@@ -326,11 +326,37 @@ export async function runScheduleNow(
   return { ok, logs, data: { durationMs } };
 }
 
+// Advisory-lock coordinates for the multi-tenant tick. A fixed (namespace, id)
+// pair shared by every replica; only the holder fires schedules each tick.
+const TICK_LOCK_NS = 4099;
+const TICK_LOCK_ID = 1;
+
 /**
  * Scheduler tick: run every enabled schedule whose interval has elapsed since
  * lastRunAt. Each run records a ScheduleRun + updates status (via runScheduleNow).
+ *
+ * Cross-process safe: when several app replicas tick at once, only the one that
+ * wins a Postgres advisory lock does the work; the others return immediately.
+ * The lock is transaction-scoped (`pg_try_advisory_xact_lock`) so it can't leak —
+ * it auto-releases when this gate transaction ends, even on crash. The actual job
+ * runs on other pooled connections; the open transaction exists only to hold the
+ * lock (needs a connection pool of >= 2, which is Prisma's default).
  */
 export async function runDueSchedules(): Promise<{ ran: number; results: unknown[] }> {
+  return prisma.$transaction(
+    async (tx) => {
+      const rows = await tx.$queryRaw<{ locked: boolean }[]>`
+        SELECT pg_try_advisory_xact_lock(${TICK_LOCK_NS}, ${TICK_LOCK_ID}) AS locked
+      `;
+      if (!rows[0]?.locked) return { ran: 0, results: [] };
+      return runDueSchedulesInner();
+    },
+    // Well under the route's maxDuration (300s); long enough to cover a full tick.
+    { timeout: 290_000, maxWait: 10_000 },
+  );
+}
+
+async function runDueSchedulesInner(): Promise<{ ran: number; results: unknown[] }> {
   const now = Date.now();
   const nowDate = new Date(now);
   const schedules = await prisma.schedule.findMany({ where: { enabled: true } });
