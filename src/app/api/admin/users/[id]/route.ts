@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { prisma } from "@/db/client";
 import { requireAdmin } from "@/lib/FUNC-current-user";
+import { verifyPassword } from "@/lib/FUNC-auth";
 import { adminUserDetail, deleteUserAndReassignFeeds } from "@/db/FUNC-admin-repo";
 
 export const runtime = "nodejs";
@@ -66,6 +67,18 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (id === auth.user.sub) {
     return NextResponse.json({ error: "you cannot delete your own account here" }, { status: 400 });
   }
+
+  // Confirm the acting admin's own password before allowing a destructive delete.
+  const body = (await req.json().catch(() => ({}))) as { password?: unknown };
+  const password = typeof body.password === "string" ? body.password : "";
+  const me = await prisma.user.findUnique({ where: { id: auth.user.sub }, select: { passwordHash: true } });
+  if (!me?.passwordHash) {
+    return NextResponse.json({ error: "set a password on your account before deleting users" }, { status: 400 });
+  }
+  if (!password || !verifyPassword(password, me.passwordHash)) {
+    return NextResponse.json({ error: "incorrect password" }, { status: 403 });
+  }
+
   const result = await deleteUserAndReassignFeeds(id);
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json(result);

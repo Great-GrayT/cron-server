@@ -12,12 +12,13 @@ export async function GET(req: Request) {
   const auth = requireUser(req);
   if ("response" in auth) return auth.response;
 
-  const user = await prisma.user.findUnique({
+  const row = await prisma.user.findUnique({
     where: { id: auth.user.sub },
-    select: PUBLIC_USER_SELECT,
+    select: { ...PUBLIC_USER_SELECT, passwordHash: true },
   });
-  if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
-  return NextResponse.json({ user });
+  if (!row) return NextResponse.json({ error: "user not found" }, { status: 404 });
+  const { passwordHash, ...pub } = row;
+  return NextResponse.json({ user: { ...pub, hasPassword: Boolean(passwordHash) } });
 }
 
 const patchSchema = profileSchema.extend({ name: z.string().max(120).optional() });
@@ -38,12 +39,13 @@ export async function PATCH(req: Request) {
       if (taken) return NextResponse.json({ error: "username already taken" }, { status: 409 });
     }
 
-    const user = await prisma.user.update({
+    const row = await prisma.user.update({
       where: { id: auth.user.sub },
       data: { ...profile, ...(name !== undefined ? { name } : {}) },
-      select: PUBLIC_USER_SELECT,
+      select: { ...PUBLIC_USER_SELECT, passwordHash: true },
     });
-    return NextResponse.json({ user });
+    const { passwordHash, ...pub } = row;
+    return NextResponse.json({ user: { ...pub, hasPassword: Boolean(passwordHash) } });
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json({ error: "invalid input", issues: error.issues }, { status: 400 });
