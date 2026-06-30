@@ -7,7 +7,7 @@ import { prisma } from "@/db/client";
  */
 
 const FROM_SELECT = {
-  select: { id: true, email: true, username: true, name: true, avatarUrl: true },
+  select: { id: true, email: true, username: true, name: true, avatarUrl: true, role: true },
 };
 
 export interface SendInput {
