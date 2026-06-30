@@ -343,11 +343,23 @@ export async function runDueSchedules(): Promise<{ ran: number; results: unknown
     return !s.lastRunAt || now - s.lastRunAt.getTime() >= s.intervalMinutes * 60_000;
   });
 
+  // Run due schedules with a bounded worker pool so a minute where many users
+  // come due at once can't open hundreds of simultaneous RSS/Telegram calls.
+  // Cap = 20 concurrent; a shared cursor hands each worker the next schedule.
+  // (Safe without a lock — increments happen between awaits on one event loop.)
   const results: unknown[] = [];
-  for (const s of due) {
-    const r = await runScheduleNow(s.userId, s.id, "cron");
-    results.push({ scheduleId: s.id, job: s.job, ok: r.ok });
-  }
+  const CONCURRENCY = 20;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < due.length) {
+      const s = due[cursor++];
+      const r = await runScheduleNow(s.userId, s.id, "cron");
+      results.push({ scheduleId: s.id, job: s.job, ok: r.ok });
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, due.length) }, worker),
+  );
   return { ran: due.length, results };
 }
 
