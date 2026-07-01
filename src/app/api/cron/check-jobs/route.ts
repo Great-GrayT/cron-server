@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     // Incrementally refresh the public stats rollups for the days just ingested.
     try {
-      await refreshRecent(2);
+      await refreshRecent();
     } catch (e) {
       logger.warn("stats rollup refresh failed (non-fatal)", e);
     }

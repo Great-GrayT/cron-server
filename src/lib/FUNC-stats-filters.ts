@@ -87,7 +87,8 @@ export function wherePrisma(f: StatsFilters, userId?: string): Prisma.JobWhereIn
   if (f.scope === "me") where.links = { some: { userId } };
   else where.sharedToStats = true;
 
-  if (from || to) where.extractedDate = { ...(from && { gte: from }), ...(to && { lt: to }) };
+  // Time window applies to the real posting date (postedDate), not scrape time.
+  if (from || to) where.postedDate = { ...(from && { gte: from }), ...(to && { lt: to }) };
   if (f.industry) where.industry = f.industry;
   if (f.seniority) where.seniority = f.seniority;
   if (f.country) where.country = f.country;
@@ -135,8 +136,8 @@ export function whereSql(f: StatsFilters, userId?: string): Prisma.Sql {
     c.push(Prisma.sql`id IN (SELECT uj.job_id FROM "user_jobs" uj WHERE uj.user_id = ${userId}::uuid)`);
   else c.push(Prisma.sql`shared_to_stats = true`);
 
-  if (from) c.push(Prisma.sql`extracted_date >= ${from}`);
-  if (to) c.push(Prisma.sql`extracted_date < ${to}`);
+  if (from) c.push(Prisma.sql`posted_date >= ${from}`);
+  if (to) c.push(Prisma.sql`posted_date < ${to}`);
   if (f.industry) c.push(Prisma.sql`industry = ${f.industry}`);
   if (f.seniority) c.push(Prisma.sql`seniority = ${f.seniority}`);
   if (f.country) c.push(Prisma.sql`country = ${f.country}`);

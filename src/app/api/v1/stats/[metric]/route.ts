@@ -24,6 +24,7 @@ type Handler = (f: StatsFilters, userId: string | undefined, req: NextRequest) =
 const HANDLERS: Record<string, Handler> = {
   summary: (f, u) => stats.summary(f, u),
   options: () => stats.filterOptions(),
+  months: (f, u) => stats.monthsList(f, u),
   industries: (f, u) => stats.facetScalar("industry", f, u),
   seniority: (f, u) => stats.facetScalar("seniority", f, u),
   roles: (f, u) => stats.facetScalar("roleCategory", f, u),

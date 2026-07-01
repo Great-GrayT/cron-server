@@ -100,7 +100,8 @@ export async function refreshDays(days: string[]): Promise<void> {
   await ensureRollupTables();
   for (const day of days) {
     const d = Prisma.sql`${day}::date`;
-    const win = Prisma.sql`shared_to_stats = true AND extracted_date >= ${day}::date AND extracted_date < (${day}::date + INTERVAL '1 day')`;
+    // Rollups are keyed by the real posting date (posted_date).
+    const win = Prisma.sql`shared_to_stats = true AND posted_date >= ${day}::date AND posted_date < (${day}::date + INTERVAL '1 day')`;
 
     await prisma.$transaction([
       prisma.$executeRaw`DELETE FROM stats_daily WHERE day = ${day}::date`,
@@ -163,8 +164,20 @@ export async function refreshDays(days: string[]): Promise<void> {
   }
 }
 
-/** Refresh today + the previous (n-1) days — called after each ingest. */
-export async function refreshRecent(nDays = 2): Promise<void> {
+/** Post-ingest counts, for logging. */
+export async function rollupStats(): Promise<{ days: number; total: number }> {
+  const [row] = await prisma.$queryRaw<{ days: number; total: number }[]>(
+    Prisma.sql`SELECT COUNT(*)::int AS days, COALESCE(SUM(total),0)::int AS total FROM stats_daily`,
+  );
+  return { days: row?.days ?? 0, total: row?.total ?? 0 };
+}
+
+/**
+ * Refresh today + the previous (n-1) posting days — called after each ingest.
+ * Wider than 1-2 days because a freshly-scraped job may have been *posted* days
+ * earlier (posted_date is out-of-order vs scrape time).
+ */
+export async function refreshRecent(nDays = 35): Promise<void> {
   const days: string[] = [];
   for (let i = 0; i < nDays; i++) {
     const d = new Date();
@@ -187,7 +200,7 @@ export async function rebuildAll(): Promise<void> {
 
     prisma.$executeRaw(Prisma.sql`
       INSERT INTO stats_daily (day,total,with_salary,salary_sum,salary_cnt,salary_min,salary_max,r0,r30,r50,r75,r100,r150)
-      WITH j AS (SELECT extracted_date::date AS day, ${MID} AS mid, (salary_min IS NOT NULL OR salary_max IS NOT NULL) AS has_sal FROM "jobs" WHERE ${win})
+      WITH j AS (SELECT posted_date::date AS day, ${MID} AS mid, (salary_min IS NOT NULL OR salary_max IS NOT NULL) AS has_sal FROM "jobs" WHERE ${win})
       SELECT day, COUNT(*)::int,
         COUNT(*) FILTER (WHERE has_sal)::int,
         COALESCE(SUM(mid) FILTER (WHERE mid IS NOT NULL), 0),
@@ -206,14 +219,14 @@ export async function rebuildAll(): Promise<void> {
       const col = Prisma.raw(`"${dim}"`);
       return prisma.$executeRaw(Prisma.sql`
         INSERT INTO stats_daily_dim (day,dim,val,cnt)
-        SELECT extracted_date::date, ${dim}, ${col}, COUNT(*)::int
+        SELECT posted_date::date, ${dim}, ${col}, COUNT(*)::int
         FROM "jobs" WHERE ${win} AND ${col} IS NOT NULL
         GROUP BY 1, ${col}
       `);
     }),
     prisma.$executeRaw(Prisma.sql`
       INSERT INTO stats_daily_dim (day,dim,val,cnt)
-      SELECT extracted_date::date, 'experience', experience_years::text, COUNT(*)::int
+      SELECT posted_date::date, 'experience', experience_years::text, COUNT(*)::int
       FROM "jobs" WHERE ${win} AND experience_years IS NOT NULL
       GROUP BY 1, experience_years
     `),
@@ -222,7 +235,7 @@ export async function rebuildAll(): Promise<void> {
       const col = Prisma.raw(`"${tag}"`);
       return prisma.$executeRaw(Prisma.sql`
         INSERT INTO stats_daily_tag (day,tag_type,tag,cnt)
-        SELECT j.extracted_date::date, ${tag}, t.value, COUNT(*)::int
+        SELECT j.posted_date::date, ${tag}, t.value, COUNT(*)::int
         FROM "jobs" j, LATERAL unnest(j.${col}) AS t(value)
         WHERE ${win}
         GROUP BY 1, t.value
@@ -231,7 +244,7 @@ export async function rebuildAll(): Promise<void> {
 
     prisma.$executeRaw(Prisma.sql`
       INSERT INTO stats_dow_hour (day,dow,hour,cnt)
-      SELECT extracted_date::date, EXTRACT(DOW FROM extracted_date)::int, EXTRACT(HOUR FROM extracted_date)::int, COUNT(*)::int
+      SELECT posted_date::date, EXTRACT(DOW FROM extracted_date)::int, EXTRACT(HOUR FROM extracted_date)::int, COUNT(*)::int
       FROM "jobs" WHERE ${win}
       GROUP BY 1, 2, 3
     `),

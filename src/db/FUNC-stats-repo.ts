@@ -164,14 +164,14 @@ export async function timeline(f: StatsFilters, series?: string, userId?: string
   if (seriesCol) {
     const col = Prisma.raw(`"${seriesCol}"`);
     const rows = await prisma.$queryRaw<{ d: string; k: string; c: number }[]>(Prisma.sql`
-      SELECT to_char(date_trunc('day', extracted_date), 'YYYY-MM-DD') AS d, ${col} AS k, COUNT(*)::int AS c
+      SELECT to_char(date_trunc('day', posted_date), 'YYYY-MM-DD') AS d, ${col} AS k, COUNT(*)::int AS c
       FROM "jobs" ${w} AND ${col} IS NOT NULL
       GROUP BY 1, 2 ORDER BY 1 ASC
     `);
     return { series, points: rows };
   }
   const rows = await prisma.$queryRaw<{ d: string; c: number }[]>(Prisma.sql`
-    SELECT to_char(date_trunc('day', extracted_date), 'YYYY-MM-DD') AS d, COUNT(*)::int AS c
+    SELECT to_char(date_trunc('day', posted_date), 'YYYY-MM-DD') AS d, COUNT(*)::int AS c
     FROM "jobs" ${w}
     GROUP BY 1 ORDER BY 1 ASC
   `);
@@ -317,6 +317,24 @@ export async function jobsList(f: StatsFilters, userId?: string) {
 export async function jobDescription(id: string): Promise<string | null> {
   const row = await prisma.job.findUnique({ where: { id }, select: { description: true } });
   return row?.description ?? null;
+}
+
+/** Distinct YYYY-MM posting months present — powers the month-picker dropdown. */
+export async function monthsList(f: StatsFilters, userId?: string): Promise<string[]> {
+  if (f.scope === "public" && (await isRollupReady())) {
+    const rows = await prisma.$queryRaw<{ m: string }[]>(
+      Prisma.sql`SELECT DISTINCT to_char(day,'YYYY-MM') AS m FROM stats_daily ORDER BY m DESC`,
+    );
+    return rows.map((r) => r.m).filter(Boolean);
+  }
+  const base =
+    f.scope === "me"
+      ? Prisma.sql`id IN (SELECT uj.job_id FROM "user_jobs" uj WHERE uj.user_id = ${userId}::uuid)`
+      : Prisma.sql`shared_to_stats = true`;
+  const rows = await prisma.$queryRaw<{ m: string }[]>(
+    Prisma.sql`SELECT DISTINCT to_char(posted_date,'YYYY-MM') AS m FROM "jobs" WHERE ${base} ORDER BY m DESC`,
+  );
+  return rows.map((r) => r.m).filter(Boolean);
 }
 
 /** Distinct values per facet — populates the UI filter dropdowns (public scope). */
