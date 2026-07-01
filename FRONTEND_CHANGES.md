@@ -187,6 +187,31 @@ contract above is final.
 
 ---
 
+## 4b. Admin page — g2 backfill button
+
+An **admin-only** page with an "Import g2 data" button. Only users with
+`role: "admin"` should see it (their `/api/auth/me` returns the role).
+
+**Endpoint:** `POST https://cron.polarislab.ir/api/admin/backfill-r2`
+- **Auth:** `Authorization: Bearer <admin JWT>` — the server re-checks `role=admin` in the DB (403 otherwise).
+- **Body:** the old R2 credentials, forwarded by the frontend host:
+  ```json
+  { "accountId": "...", "accessKeyId": "...", "secretAccessKey": "...", "bucket": "..." }
+  ```
+- **Response:** `{ "success": true, "months": N, "days": N, "read": N, "inserted": N }`
+
+**Important — keep R2 secrets server-side.** The button must NOT put R2 secrets
+in the browser. Flow:
+1. Button → calls the **frontend's own** API route (Next.js server / Vercel function).
+2. That route reads the R2 secrets from **its env** and forwards them (+ the
+   admin's JWT) to the cron-server endpoint above. Server-to-server over HTTPS;
+   the browser never sees the secrets.
+3. Show the returned counts. It's **idempotent** — safe to click again (existing
+   jobs are skipped); re-click if it times out on a large history.
+
+The imported jobs are marked shared-to-stats, so they appear on the public Stats
+page for everyone, owned by the admin who ran the import.
+
 ## 5. Migration notes for the frontend
 
 - Remove all direct R2 / cloud fetch code; replace with `fetch(`${API_BASE}/...`)`.
