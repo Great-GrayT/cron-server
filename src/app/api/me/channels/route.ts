@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const upsertSchema = z.object({
-  kind: z.enum(["main", "goat"]),
+  kind: z.enum(["main", "filtered"]),
   botToken: z.string().min(20).max(200),
   chatId: z.string().min(1).max(100),
   active: z.boolean().default(true),
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ channels });
 }
 
-/** POST /api/me/channels — create/replace the main|goat channel (token encrypted). */
+/** POST /api/me/channels — create/replace the main|filtered channel (token encrypted). */
 export async function POST(req: Request) {
   const auth = requireUser(req);
   if ("response" in auth) return auth.response;

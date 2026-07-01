@@ -1,12 +1,8 @@
 import { prisma } from "@/db/client";
 import { decryptSecret } from "@/lib/FUNC-crypto";
 import { logger } from "@/lib/logger";
-import {
-  checkAndSendJobs,
-  defaultGoatRules,
-  type GoatRules,
-  type JobMonitorConfig,
-} from "@/core/workers/job-monitor";
+import { checkAndSendJobs, type JobMonitorConfig } from "@/core/workers/job-monitor";
+import type { FilterSetData } from "@/core/FUNC-filter-eval";
 import { ingestUserFeeds, ingestFeeds } from "@/core/workers/stats-ingest";
 import { SentUrlCache } from "@/db/FUNC-dedup-repo";
 import { scrapeLinkedInJobs, createExcelFile } from "@/services/scraper/FUNC-linkedin-scraper";
@@ -37,7 +33,7 @@ interface Channel {
   chatId: string;
 }
 
-async function loadChannels(userId: string): Promise<{ main: Channel | null; goat: Channel | null }> {
+async function loadChannels(userId: string): Promise<{ main: Channel | null; filtered: Channel | null }> {
   const rows = await prisma.notificationChannel.findMany({ where: { userId, active: true } });
   const pick = (kind: string): Channel | null => {
     const c = rows.find((r) => r.kind === kind);
@@ -49,32 +45,25 @@ async function loadChannels(userId: string): Promise<{ main: Channel | null; goa
       return null;
     }
   };
-  return { main: pick("main"), goat: pick("goat") };
+  return { main: pick("main"), filtered: pick("filtered") };
 }
 
-function goatRulesFor(config: {
-  enabled: boolean;
-  requireIndustry: boolean;
-  requireCategory: boolean;
-  categories: string[];
-  industries: string[];
-  seniorities: string[];
-  companyBlacklist: string[];
-  vipCompanies: string[];
-  locationTerms: string[];
-} | null): GoatRules {
-  if (!config) return { ...defaultGoatRules(), enabled: false };
-  return {
-    enabled: config.enabled,
-    requireIndustry: config.requireIndustry,
-    requireCategory: config.requireCategory,
-    categories: config.categories,
-    industries: config.industries,
-    seniorities: config.seniorities,
-    companyBlacklist: config.companyBlacklist,
-    vipCompanies: config.vipCompanies,
-    locationTerms: config.locationTerms,
-  };
+/** Load a user's enabled JFS filter sets (with conditions) for the pipeline. */
+async function loadFilterSets(userId: string): Promise<FilterSetData[]> {
+  const sets = await prisma.filterSet.findMany({
+    where: { userId, enabled: true },
+    include: { conditions: { orderBy: { position: "asc" } } },
+  });
+  return sets.map((s) => ({
+    enabled: s.enabled,
+    conditions: s.conditions.map((c) => ({
+      field: c.field,
+      op: c.op,
+      value: c.value,
+      connector: c.connector,
+      position: c.position,
+    })),
+  }));
 }
 
 /**
@@ -87,13 +76,13 @@ function goatRulesFor(config: {
  * Each job's share status is the feed's `shareToStats` at run time.
  */
 export async function runCheckJobsForUser(userId: string) {
-  const [channels, feeds, goatConfig] = await Promise.all([
+  const [channels, feeds, filterSets] = await Promise.all([
     loadChannels(userId),
     prisma.feed.findMany({
       where: { userId, active: true, notify: true },
       select: { id: true, url: true, shareToStats: true },
     }),
-    prisma.goatConfig.findUnique({ where: { userId } }),
+    loadFilterSets(userId),
   ]);
   const main = channels.main;
 
@@ -113,13 +102,13 @@ export async function runCheckJobsForUser(userId: string) {
     feedUrls: feeds.map((f) => f.url),
     mainBotToken: main.botToken,
     mainChatId: main.chatId,
-    goatBotToken: channels.goat?.botToken,
-    goatChatId: channels.goat?.chatId,
+    filteredBotToken: channels.filtered?.botToken,
+    filteredChatId: channels.filtered?.chatId,
     cacheKey: `u:${userId}:rss`,
     label: `user:${userId}`,
     // Tracking links record applications into this user's own applied store.
     appliedNamespace: userId,
-    goat: goatRulesFor(goatConfig),
+    filterSets,
   };
   const tg = await checkAndSendJobs(config);
   return { ...tg, ingested: ingest.newJobs };
@@ -265,10 +254,10 @@ export async function testFeedFetch(userId: string, feedId: string): Promise<Act
 
 export async function sendFeedNow(userId: string, feedId: string): Promise<ActionResult> {
   const logs: LogLine[] = [];
-  const [feed, channels, goatConfig] = await Promise.all([
+  const [feed, channels, filterSets] = await Promise.all([
     prisma.feed.findFirst({ where: { id: feedId, userId } }),
     loadChannels(userId),
-    prisma.goatConfig.findUnique({ where: { userId } }),
+    loadFilterSets(userId),
   ]);
   if (!feed) return { ok: false, logs: [{ level: "error", message: "feed not found" }] };
   if (!channels.main) {
@@ -281,12 +270,12 @@ export async function sendFeedNow(userId: string, feedId: string): Promise<Actio
       feedUrls: [feed.url],
       mainBotToken: channels.main.botToken,
       mainChatId: channels.main.chatId,
-      goatBotToken: channels.goat?.botToken,
-      goatChatId: channels.goat?.chatId,
+      filteredBotToken: channels.filtered?.botToken,
+      filteredChatId: channels.filtered?.chatId,
       cacheKey: `u:${userId}:rss`,
       label: `feed:${feed.id}`,
       appliedNamespace: userId,
-      goat: goatRulesFor(goatConfig),
+      filterSets,
     });
     logs.push({ level: "success", message: `Telegram: ${result.sent} sent, ${result.total} scanned, ${result.failed} failed` });
 

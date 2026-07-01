@@ -19,125 +19,30 @@ export interface JobMonitorConfig {
   feedUrls: string[];
   mainBotToken: string | undefined;
   mainChatId: string | undefined;
-  goatBotToken: string | undefined;
-  goatChatId: string | undefined;
+  filteredBotToken: string | undefined;
+  filteredChatId: string | undefined;
   cacheKey: string;
   label: string;
   appliedNamespace: AppliedNamespace;
-  /** Per-user GOAT eligibility rules. */
-  goat: GoatRules;
+  /** JFS filter sets — a job matching ANY enabled set goes to the filtered channel. */
+  filterSets: FilterSetData[];
 }
 
 import { LocationExtractor } from "@/analysis/FUNC-location-extractor";
-import { JobMetadataExtractor } from "@/analysis/FUNC-job-metadata-extractor";
-import { RoleTypeExtractor } from "@/analysis/FUNC-role-type-extractor";
-import { extractJobDetails } from "@/analysis/FUNC-job-analyzer";
-import { getCompanyFromUrl, getCountryFromUrlTLD, resolvePostedDate } from "@/analysis/FUNC-company-location-lookup";
-
-// --- GOAT eligibility (per-user configurable rules) ---
-
-export interface GoatRules {
-  enabled: boolean;
-  requireIndustry: boolean;
-  requireCategory: boolean;
-  categories: string[];
-  industries: string[];
-  seniorities: string[];
-  companyBlacklist: string[];
-  vipCompanies: string[];
-  /** Required location substrings; empty = no location gate. Bare "uk" = word match. */
-  locationTerms: string[];
-}
-
-/** The original hardcoded main-pipeline GOAT rules (used by the legacy routes). */
-export function defaultGoatRules(): GoatRules {
-  return {
-    enabled: true,
-    requireIndustry: true,
-    requireCategory: true,
-    categories: [
-      "Corporate Finance & Accounting",
-      "Quantitative Finance",
-      "Private Equity & Venture Capital",
-      "Investment Banking",
-      "Data & Analytics",
-      "Asset & Portfolio Management",
-    ],
-    industries: ["Finance"],
-    seniorities: ["Mid", "Entry"],
-    companyBlacklist: ["targetjobs", "greenwich", "hackajob", "Jobs via eFinancialCareers", "Hays"],
-    vipCompanies: ["marriott", "marriot", "lloyds", "natwest", "metro"],
-    locationTerms: [
-      "uk", "united kingdom", "london", "england", "scotland", "wales", "manchester",
-      "birmingham", "edinburgh", "glasgow", "leeds", "bristol", "liverpool", "sheffield",
-      "newcastle", "cardiff",
-    ],
-  };
-}
+import { getCountryFromUrlTLD, resolvePostedDate } from "@/analysis/FUNC-company-location-lookup";
+import { matchesAnyFilterSet, type FilterSetData } from "@/core/FUNC-filter-eval";
+import { analyzeRssJob } from "@/core/workers/stats-ingest";
 
 /**
- * True if the job matches any required location term (substring; bare "uk" uses
- * a word boundary to avoid "uk.indeed.com"), or its URL TLD resolves to the UK.
- * Empty terms = no location gate.
+ * JFS: true if the job matches any of the user's enabled filter sets. The job is
+ * fully analysed once (same extractor pipeline as the stats ingest) and the
+ * conditions are evaluated against it.
  */
-function locationMatches(job: JobItem, terms: string[]): boolean {
-  if (terms.length === 0) return true;
-  const combined = `${(job.location || "").toLowerCase()} ${(job.title || "").toLowerCase()}`;
-  for (const term of terms) {
-    const t = term.toLowerCase();
-    if (t === "uk") {
-      if (/\buk\b/i.test(combined)) return true;
-    } else if (combined.includes(t)) {
-      return true;
-    }
-  }
-  return getCountryFromUrlTLD(job.link) === "United Kingdom";
-}
-
-/**
- * Returns true if the job meets the user's GOAT criteria.
- * location gate → blacklist → industry (optional) → VIP fast-path → seniority →
- * CFA/CIMA bypass → category (optional).
- */
-function isGoatEligible(job: JobItem, rules: GoatRules): boolean {
-  if (!rules.enabled) return false;
-  if (!locationMatches(job, rules.locationTerms)) return false;
-
-  const companyLower = (job.company || "").toLowerCase();
-  if (rules.companyBlacklist.some((name) => companyLower.includes(name.toLowerCase()))) return false;
-
-  const details = extractJobDetails(job.title);
-  const company =
-    details.company !== "N/A" ? details.company : job.company || getCompanyFromUrl(job.link, job.title) || "";
-  const metadata = JobMetadataExtractor.extractAllMetadata({
-    title: details.position,
-    company,
-    description: job.description,
-    url: job.link,
-  });
-
-  if (rules.requireIndustry && !rules.industries.includes(metadata.industry)) return false;
-
-  const titleAndCompany = `${(job.title || "").toLowerCase()} ${companyLower}`;
-  if (rules.vipCompanies.some((name) => titleAndCompany.includes(name.toLowerCase()))) return true;
-
-  if (!rules.seniorities.includes(metadata.seniority)) return false;
-
-  const hasBypassCert = metadata.certificates.some((cert) => {
-    const c = cert.toLowerCase();
-    return c.includes("cfa") || c.includes("cima");
-  });
-  if (hasBypassCert) return true;
-
-  if (!rules.requireCategory) return true;
-
-  const roleTypeMatch = RoleTypeExtractor.extractRoleType(
-    details.position,
-    metadata.keywords,
-    job.description,
-    metadata.industry,
-  );
-  return roleTypeMatch !== null && rules.categories.includes(roleTypeMatch.category);
+function isFiltered(job: JobItem, sets: FilterSetData[]): boolean {
+  if (sets.length === 0) return false;
+  const analyzed = analyzeRssJob(job);
+  if (!analyzed) return false;
+  return matchesAnyFilterSet(analyzed, sets);
 }
 
 // Feed URL that should only send Europe and Canada jobs
@@ -275,12 +180,13 @@ export function defaultMainConfig(): JobMonitorConfig {
     feedUrls: RSS_FEED_URLS,
     mainBotToken: TELEGRAM_BOT_TOKEN,
     mainChatId: TELEGRAM_CHAT_ID,
-    goatBotToken: GOAT_TELEGRAM_BOT_TOKEN,
-    goatChatId: GOAT_TELEGRAM_CHAT_ID,
+    filteredBotToken: GOAT_TELEGRAM_BOT_TOKEN,
+    filteredChatId: GOAT_TELEGRAM_CHAT_ID,
     cacheKey: "url-rss",
     label: "main",
     appliedNamespace: "default",
-    goat: defaultGoatRules(),
+    // Legacy env pipeline has no JFS sets; nothing routed to the filtered channel.
+    filterSets: [],
   };
 }
 
@@ -361,11 +267,11 @@ export async function checkAndSendJobs(config: JobMonitorConfig): Promise<CronJo
       };
     }
 
-    // Format messages and pre-compute GOAT eligibility for each job
-    const goatRules = config.goat;
+    // Format messages and pre-compute JFS match (filtered channel) for each job
+    const filterSets = config.filterSets;
     const jobMessages = newJobs.map((job) => ({
       message: formatJobMessage(job, { namespace: config.appliedNamespace }),
-      isGoat: isGoatEligible(job, goatRules),
+      isFiltered: isFiltered(job, filterSets),
     }));
     const messages = jobMessages.map((jm) => jm.message);
 
@@ -401,24 +307,24 @@ export async function checkAndSendJobs(config: JobMonitorConfig): Promise<CronJo
       );
     }
 
-    // GOAT channel: send qualifying jobs from the successfully sent batch
-    if (sent > 0 && config.goatBotToken && config.goatChatId) {
-      const goatMessages = jobMessages
+    // Filtered channel (JFS): send jobs that matched a filter set, from the batch.
+    if (sent > 0 && config.filteredBotToken && config.filteredChatId) {
+      const filteredMessages = jobMessages
         .slice(0, sent)
-        .filter((jm) => jm.isGoat)
+        .filter((jm) => jm.isFiltered)
         .map((jm) => jm.message);
 
-      if (goatMessages.length > 0) {
-        logger.info(`[${config.label}] Sending ${goatMessages.length} GOAT-eligible jobs to GOAT channel`);
-        const goatResult = await sendMessagesWithRateLimitTo(
-          config.goatBotToken,
-          config.goatChatId,
-          goatMessages,
+      if (filteredMessages.length > 0) {
+        logger.info(`[${config.label}] Sending ${filteredMessages.length} JFS-matched jobs to filtered channel`);
+        const filteredResult = await sendMessagesWithRateLimitTo(
+          config.filteredBotToken,
+          config.filteredChatId,
+          filteredMessages,
           RATE_LIMIT_DELAY_MS,
         );
-        logger.info(`[${config.label}] GOAT channel: ${goatResult.sent} sent, ${goatResult.failed} failed`);
+        logger.info(`[${config.label}] filtered channel: ${filteredResult.sent} sent, ${filteredResult.failed} failed`);
       } else {
-        logger.info(`[${config.label}] No GOAT-eligible jobs in this batch`);
+        logger.info(`[${config.label}] No JFS-matched jobs in this batch`);
       }
     }
 

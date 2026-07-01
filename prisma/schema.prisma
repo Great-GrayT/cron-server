@@ -176,7 +176,7 @@ model User {
   accounts         OAuthAccount[]
   feeds            Feed[]
   channels         NotificationChannel[]
-  goatConfig       GoatConfig?
+  filterSets       FilterSet[]
   schedules        Schedule[]
   userJobs         UserJob[]
   appliedJobs      AppliedJob[]
@@ -303,22 +303,38 @@ model NotificationChannel {
 }
 
 /// Per-user GOAT filter rules (was hardcoded constants in job-monitor).
-model GoatConfig {
-  id               String   @id @default(uuid()) @db.Uuid
-  userId           String   @unique @map("user_id") @db.Uuid
-  enabled          Boolean  @default(false)
-  requireIndustry  Boolean  @default(true) @map("require_industry")
-  requireCategory  Boolean  @default(true) @map("require_category")
-  categories       String[] // qualifying role categories
-  industries       String[] // qualifying industries (e.g. Finance)
-  seniorities      String[] // qualifying seniorities (e.g. Mid, Entry)
-  companyBlacklist String[] @map("company_blacklist")
-  vipCompanies     String[] @map("vip_companies")
-  locationTerms    String[] @map("location_terms") // required location substrings
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+/// A saved JFS (Job Filtering System) filter set. A user has many; a job that
+/// matches ANY enabled set is posted to the user's "filtered" Telegram channel.
+model FilterSet {
+  id         String            @id @default(uuid()) @db.Uuid
+  userId     String            @map("user_id") @db.Uuid
+  name       String
+  enabled    Boolean           @default(true)
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conditions FilterCondition[]
 
-  @@map("goat_configs")
+  @@index([userId])
+  @@map("filter_sets")
+}
+
+/// One condition in a set. Conditions are evaluated left-to-right; `connector`
+/// joins THIS condition to the next one ("AND" | "OR"); the last is ignored.
+model FilterCondition {
+  id          String    @id @default(uuid()) @db.Uuid
+  filterSetId String    @map("filter_set_id") @db.Uuid
+  position    Int
+  /// industry | seniority | roleCategory | roleType | keyword | certificate |
+  /// software | programming | country | region | company | experience | salary | title
+  field       String
+  op          String    @default("is") // is | has | contains | gte | lte
+  value       String
+  connector   String    @default("AND") // AND | OR — joins to the NEXT condition
+  filterSet   FilterSet @relation(fields: [filterSetId], references: [id], onDelete: Cascade)
+
+  @@index([filterSetId, position])
+  @@map("filter_conditions")
 }
 
 /// A user's schedule for one pipeline. The /api/cron/tick endpoint runs the

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkAndSendJobs, defaultGoatRules, type JobMonitorConfig } from "@/core/workers/job-monitor";
+import { checkAndSendJobs, type JobMonitorConfig } from "@/core/workers/job-monitor";
 import { verifyCronRequest, ValidationError } from "@/lib/validation";
 import { logger } from "@/lib/logger";
 import {
@@ -36,13 +36,13 @@ export async function GET(request: NextRequest) {
       feedUrls: RSS_ARYAN_FEED_URLS,
       mainBotToken: TELEGRAM_ARYAN_BOT_TOKEN,
       mainChatId: TELEGRAM_ARYAN_CHAT_ID,
-      goatBotToken: GOAT_TELEGRAM_ARYAN_BOT_TOKEN,
-      goatChatId: GOAT_TELEGRAM_ARYAN_CHAT_ID,
+      filteredBotToken: GOAT_TELEGRAM_ARYAN_BOT_TOKEN,
+      filteredChatId: GOAT_TELEGRAM_ARYAN_CHAT_ID,
       cacheKey: "url-rss-aryan",
       label: "aryan",
       appliedNamespace: "aryan",
-      // Aryan GOAT: no industry/category gates — any UK Mid/Entry (or VIP) passes.
-      goat: { ...defaultGoatRules(), requireIndustry: false, requireCategory: false },
+      // Legacy env pipeline: no JFS sets.
+      filterSets: [],
     };
 
     logger.info("Aryan cron job started");
