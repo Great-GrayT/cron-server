@@ -1,6 +1,39 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/client";
-import { wherePrisma, whereSql, type StatsFilters } from "@/lib/FUNC-stats-filters";
+import { wherePrisma, whereSql, dateRange, type StatsFilters } from "@/lib/FUNC-stats-filters";
+import {
+  isRollupReady,
+  rollupSummary,
+  rollupScalar,
+  rollupTag,
+  rollupExperience,
+  rollupTimeline,
+  rollupHeatmap,
+  rollupHourly,
+  rollupSalary,
+} from "@/db/FUNC-stats-rollup";
+
+/**
+ * Rollups can answer a request only when it's the PUBLIC scope with no facet /
+ * search / range filters (just an optional date window) — because the summary
+ * tables are pre-grouped at day grain. Anything more specific falls back to a
+ * live, date-bounded query below.
+ */
+function rollupEligible(f: StatsFilters): boolean {
+  return (
+    f.scope === "public" &&
+    !f.industry && !f.seniority && !f.country && !f.region && !f.city &&
+    !f.roleType && !f.roleCategory && !f.company &&
+    !f.keyword && !f.certificate && !f.software && !f.programming && !f.degree &&
+    f.salaryMin === undefined && f.salaryMax === undefined &&
+    f.expMin === undefined && f.expMax === undefined &&
+    !f.q
+  );
+}
+
+async function canRollup(f: StatsFilters): Promise<boolean> {
+  return rollupEligible(f) && (await isRollupReady());
+}
 
 /**
  * Stats aggregation repository — one query per stats-page component, filter +
@@ -29,9 +62,13 @@ type ScalarField = keyof typeof SCALAR_COLUMNS;
 // ---- scalar facets (Industry treemap, Seniority waffle, World map, roles) ----
 
 export async function facetScalar(field: ScalarField, f: StatsFilters, userId?: string): Promise<Facet> {
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    return rollupScalar(SCALAR_COLUMNS[field], from, to, f.limit);
+  }
   const col = Prisma.raw(`"${SCALAR_COLUMNS[field]}"`);
   const rows = await prisma.$queryRaw<{ key: string; c: number }[]>(Prisma.sql`
-    SELECT ${col} AS key, COUNT(DISTINCT url)::int AS c
+    SELECT ${col} AS key, COUNT(*)::int AS c
     FROM "jobs" ${whereSql(f, userId)} AND ${col} IS NOT NULL
     GROUP BY 1 ORDER BY c DESC LIMIT ${f.limit}
   `);
@@ -52,9 +89,13 @@ const ARRAY_COLUMNS = {
 type ArrayKey = keyof typeof ARRAY_COLUMNS;
 
 export async function facetArray(key: ArrayKey, f: StatsFilters, userId?: string): Promise<Facet> {
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    return rollupTag(ARRAY_COLUMNS[key], from, to, f.limit);
+  }
   const col = Prisma.raw(`"${ARRAY_COLUMNS[key]}"`);
   const rows = await prisma.$queryRaw<{ value: string; c: number }[]>(Prisma.sql`
-    SELECT t.value AS value, COUNT(DISTINCT j.url)::int AS c
+    SELECT t.value AS value, COUNT(*)::int AS c
     FROM "jobs" j, LATERAL unnest(j.${col}) AS t(value)
     ${whereSql(f, userId)}
     GROUP BY t.value ORDER BY c DESC LIMIT ${f.limit}
@@ -66,8 +107,12 @@ export async function facetArray(key: ArrayKey, f: StatsFilters, userId?: string
 
 /** Experience-years distribution. */
 export async function facetExperience(f: StatsFilters, userId?: string): Promise<Facet> {
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    return rollupExperience(from, to);
+  }
   const rows = await prisma.$queryRaw<{ y: number; c: number }[]>(Prisma.sql`
-    SELECT experience_years AS y, COUNT(DISTINCT url)::int AS c
+    SELECT experience_years AS y, COUNT(*)::int AS c
     FROM "jobs" ${whereSql(f, userId)} AND experience_years IS NOT NULL
     GROUP BY 1 ORDER BY 1 ASC
   `);
@@ -109,18 +154,24 @@ const SERIES_COLUMNS: Record<string, string> = {
 };
 
 export async function timeline(f: StatsFilters, series?: string, userId?: string) {
+  const seriesCol = series && SERIES_COLUMNS[series] ? SERIES_COLUMNS[series] : null;
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    const r = await rollupTimeline(seriesCol, from, to);
+    return seriesCol ? { series, points: r.points } : { series: null, points: r.points };
+  }
   const w = whereSql(f, userId);
-  if (series && SERIES_COLUMNS[series]) {
-    const col = Prisma.raw(`"${SERIES_COLUMNS[series]}"`);
+  if (seriesCol) {
+    const col = Prisma.raw(`"${seriesCol}"`);
     const rows = await prisma.$queryRaw<{ d: string; k: string; c: number }[]>(Prisma.sql`
-      SELECT to_char(date_trunc('day', extracted_date), 'YYYY-MM-DD') AS d, ${col} AS k, COUNT(DISTINCT url)::int AS c
+      SELECT to_char(date_trunc('day', extracted_date), 'YYYY-MM-DD') AS d, ${col} AS k, COUNT(*)::int AS c
       FROM "jobs" ${w} AND ${col} IS NOT NULL
       GROUP BY 1, 2 ORDER BY 1 ASC
     `);
     return { series, points: rows };
   }
   const rows = await prisma.$queryRaw<{ d: string; c: number }[]>(Prisma.sql`
-    SELECT to_char(date_trunc('day', extracted_date), 'YYYY-MM-DD') AS d, COUNT(DISTINCT url)::int AS c
+    SELECT to_char(date_trunc('day', extracted_date), 'YYYY-MM-DD') AS d, COUNT(*)::int AS c
     FROM "jobs" ${w}
     GROUP BY 1 ORDER BY 1 ASC
   `);
@@ -128,18 +179,26 @@ export async function timeline(f: StatsFilters, series?: string, userId?: string
 }
 
 export async function heatmap(f: StatsFilters, userId?: string) {
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    return rollupHeatmap(from, to);
+  }
   return prisma.$queryRaw<{ dow: number; hour: number; c: number }[]>(Prisma.sql`
     SELECT EXTRACT(DOW FROM extracted_date)::int AS dow,
            EXTRACT(HOUR FROM extracted_date)::int AS hour,
-           COUNT(DISTINCT url)::int AS c
+           COUNT(*)::int AS c
     FROM "jobs" ${whereSql(f, userId)}
     GROUP BY 1, 2 ORDER BY 1, 2
   `);
 }
 
 export async function hourly(f: StatsFilters, userId?: string) {
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    return rollupHourly(from, to);
+  }
   return prisma.$queryRaw<{ hour: number; c: number }[]>(Prisma.sql`
-    SELECT EXTRACT(HOUR FROM extracted_date)::int AS hour, COUNT(DISTINCT url)::int AS c
+    SELECT EXTRACT(HOUR FROM extracted_date)::int AS hour, COUNT(*)::int AS c
     FROM "jobs" ${whereSql(f, userId)}
     GROUP BY 1 ORDER BY 1
   `);
@@ -148,6 +207,10 @@ export async function hourly(f: StatsFilters, userId?: string) {
 // ---- salary ----
 
 export async function salary(f: StatsFilters, userId?: string) {
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    return rollupSalary(from, to);
+  }
   const w = whereSql(f, userId);
   const salaryCond = Prisma.sql`(salary_min IS NOT NULL OR salary_max IS NOT NULL)`;
   const cond = Prisma.sql`${w} AND ${salaryCond}`;
@@ -156,7 +219,7 @@ export async function salary(f: StatsFilters, userId?: string) {
   const [agg] = await prisma.$queryRaw<
     { total: number; avg: number | null; median: number | null; min: number | null; max: number | null }[]
   >(Prisma.sql`
-    SELECT COUNT(DISTINCT url)::int AS total,
+    SELECT COUNT(*)::int AS total,
            ROUND(AVG(${mid}))::int AS avg,
            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${mid}))::int AS median,
            MIN(${mid})::int AS min,
@@ -171,13 +234,13 @@ export async function salary(f: StatsFilters, userId?: string) {
       WHEN ${mid} < 75000 THEN '50-75k'
       WHEN ${mid} < 100000 THEN '75-100k'
       WHEN ${mid} < 150000 THEN '100-150k'
-      ELSE '150k+' END AS bucket, COUNT(DISTINCT url)::int AS c
+      ELSE '150k+' END AS bucket, COUNT(*)::int AS c
     FROM "jobs" ${cond}
     GROUP BY 1
   `);
 
   const currencies = await prisma.$queryRaw<{ currency: string; c: number }[]>(Prisma.sql`
-    SELECT salary_currency AS currency, COUNT(DISTINCT url)::int AS c
+    SELECT salary_currency AS currency, COUNT(*)::int AS c
     FROM "jobs" ${w} AND salary_currency IS NOT NULL
     GROUP BY 1 ORDER BY 2 DESC
   `);
@@ -201,9 +264,13 @@ export async function salary(f: StatsFilters, userId?: string) {
 // ---- summary + jobs list ----
 
 export async function summary(f: StatsFilters, userId?: string) {
+  if (await canRollup(f)) {
+    const { from, to } = dateRange(f);
+    return rollupSummary(from, to);
+  }
   const [row] = await prisma.$queryRaw<{ total: number; with_salary: number }[]>(Prisma.sql`
-    SELECT COUNT(DISTINCT url)::int AS total,
-           COUNT(DISTINCT url) FILTER (WHERE salary_min IS NOT NULL OR salary_max IS NOT NULL)::int AS with_salary
+    SELECT COUNT(*)::int AS total,
+           COUNT(*) FILTER (WHERE salary_min IS NOT NULL OR salary_max IS NOT NULL)::int AS with_salary
     FROM "jobs" ${whereSql(f, userId)}
   `);
   return { total: row?.total ?? 0, withSalary: row?.with_salary ?? 0 };

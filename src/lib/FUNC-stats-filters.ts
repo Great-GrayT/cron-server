@@ -70,7 +70,7 @@ export function parseFilters(searchParams: URLSearchParams): StatsFilters {
 }
 
 /** Resolve the effective [from,to] extractedDate window. */
-function dateRange(f: StatsFilters): { from?: Date; to?: Date } {
+export function dateRange(f: StatsFilters): { from?: Date; to?: Date } {
   if (f.month) {
     const [y, m] = f.month.split("-").map(Number);
     return { from: new Date(Date.UTC(y, m - 1, 1)), to: new Date(Date.UTC(y, m, 1)) };
