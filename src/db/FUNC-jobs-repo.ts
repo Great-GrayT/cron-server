@@ -108,14 +108,3 @@ export async function getSystemUserId(): Promise<string> {
   });
   return user.id;
 }
-
-/** The Admin account that owns the g2 backfilled jobs. */
-export async function getAdminUserId(): Promise<string> {
-  const user = await prisma.user.upsert({
-    where: { email: "admin@cron.local" },
-    create: { email: "admin@cron.local", name: "Admin", role: "admin", emailVerified: true },
-    update: {},
-    select: { id: true },
-  });
-  return user.id;
-}

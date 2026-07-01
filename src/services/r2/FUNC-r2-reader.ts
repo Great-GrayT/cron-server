@@ -8,8 +8,17 @@ import { gunzipSync } from "node:zlib";
  *   manifest.json                         (index)
  *   metadata/YYYY/MM/day-DD.ndjson.gz     (job metadata, gzipped NDJSON)
  *
- * Credentials come from R2_* env vars. Only GET is implemented.
+ * Credentials are passed in per call (the admin page forwards them from the
+ * frontend host) — they are never stored. `envR2Credentials()` is a fallback
+ * for running the backfill from the server's own env.
  */
+
+export interface R2Credentials {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+}
 
 export interface ManifestDay {
   date: string;
@@ -28,26 +37,29 @@ export interface Manifest {
   totalJobsAllTime: number;
 }
 
-function client(): { s3: S3Client; bucket: string } {
+/** Fallback credentials from the server env (optional). */
+export function envR2Credentials(): R2Credentials | null {
   const accountId = process.env.R2_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
   const bucket = process.env.R2_BUCKET_NAME;
-  if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
-    throw new Error("R2 not configured — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME.");
-  }
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucket) return null;
+  return { accountId, accessKeyId, secretAccessKey, bucket };
+}
+
+function client(c: R2Credentials): { s3: S3Client; bucket: string } {
   return {
-    bucket,
+    bucket: c.bucket,
     s3: new S3Client({
       region: "auto",
-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-      credentials: { accessKeyId, secretAccessKey },
+      endpoint: `https://${c.accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey },
     }),
   };
 }
 
-export async function getJSON<T>(key: string): Promise<T | null> {
-  const { s3, bucket } = client();
+export async function getJSON<T>(c: R2Credentials, key: string): Promise<T | null> {
+  const { s3, bucket } = client(c);
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
     const body = await res.Body?.transformToString();
@@ -58,8 +70,8 @@ export async function getJSON<T>(key: string): Promise<T | null> {
   }
 }
 
-export async function getNDJSONGzipped<T>(key: string): Promise<T[]> {
-  const { s3, bucket } = client();
+export async function getNDJSONGzipped<T>(c: R2Credentials, key: string): Promise<T[]> {
+  const { s3, bucket } = client(c);
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
     const bytes = await res.Body?.transformToByteArray();
@@ -75,8 +87,8 @@ export async function getNDJSONGzipped<T>(key: string): Promise<T[]> {
   }
 }
 
-export function getManifest(): Promise<Manifest | null> {
-  return getJSON<Manifest>("manifest.json");
+export function getManifest(c: R2Credentials): Promise<Manifest | null> {
+  return getJSON<Manifest>(c, "manifest.json");
 }
 
 function isNotFound(error: unknown): boolean {

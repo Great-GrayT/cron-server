@@ -1,5 +1,5 @@
-import { getManifest, getNDJSONGzipped } from "@/services/r2/FUNC-r2-reader";
-import { getAdminUserId, insertJobs } from "@/db/FUNC-jobs-repo";
+import { getManifest, getNDJSONGzipped, type R2Credentials } from "@/services/r2/FUNC-r2-reader";
+import { insertJobs } from "@/db/FUNC-jobs-repo";
 import { logger } from "@/lib/logger";
 import type { JobRegion, JobStatistic, SalaryData } from "@/types/stats";
 
@@ -8,8 +8,9 @@ import type { JobRegion, JobStatistic, SalaryData } from "@/types/stats";
  * into Postgres, attributed to the system account and shared to public stats.
  *
  * Reads the R2 manifest, then each day's gzipped metadata NDJSON, maps it to a
- * JobStatistic, and inserts owned by the Admin account. Description text is not
- * backfilled (it lived in separate heavy files); stats/facets don't need it.
+ * JobStatistic, and inserts owned by the admin who triggered it (a real
+ * account). R2 credentials are passed in (forwarded from the admin page), never
+ * stored. Description text is not backfilled (it lived in separate heavy files).
  */
 
 interface R2JobMetadata {
@@ -78,11 +79,11 @@ export interface BackfillResult {
   inserted: number;
 }
 
-export async function backfillFromR2(): Promise<BackfillResult> {
-  const manifest = await getManifest();
+export async function backfillFromR2(creds: R2Credentials, ownerUserId: string): Promise<BackfillResult> {
+  const manifest = await getManifest(creds);
   if (!manifest) throw new Error("No manifest.json found in R2 bucket.");
 
-  const userId = await getAdminUserId();
+  const userId = ownerUserId;
   const result: BackfillResult = { months: 0, days: 0, read: 0, inserted: 0 };
 
   for (const month of manifest.availableMonths) {
@@ -91,7 +92,7 @@ export async function backfillFromR2(): Promise<BackfillResult> {
     result.months++;
 
     for (const day of monthData.days) {
-      const metadata = await getNDJSONGzipped<R2JobMetadata>(day.metadata);
+      const metadata = await getNDJSONGzipped<R2JobMetadata>(creds, day.metadata);
       if (metadata.length === 0) continue;
       result.days++;
       result.read += metadata.length;
