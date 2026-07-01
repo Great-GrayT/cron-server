@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { prisma } from "@/db/client";
 import { requireUser } from "@/lib/FUNC-current-user";
-import { conditionSchema } from "../route";
+import { conditionSchema } from "@/lib/FUNC-filter-schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

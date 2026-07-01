@@ -3,16 +3,10 @@ import { z, ZodError } from "zod";
 import { prisma } from "@/db/client";
 import { requireUser } from "@/lib/FUNC-current-user";
 import { FILTER_FIELDS } from "@/analysis/FUNC-field-values";
+import { conditionSchema } from "@/lib/FUNC-filter-schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-export const conditionSchema = z.object({
-  field: z.string().min(1).max(40),
-  op: z.enum(["is", "has", "contains", "gte", "lte"]).default("is"),
-  value: z.string().min(1).max(200),
-  connector: z.enum(["AND", "OR"]).default("AND"),
-});
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
