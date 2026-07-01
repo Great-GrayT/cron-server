@@ -5,11 +5,12 @@ import { logger } from "@/lib/logger";
  * Postgres-backed dedup ledger — drop-in replacement for the old R2 `UrlCache`.
  *
  * Keeps the same interface (load / has / add / save / size) so the ported
- * orchestrators need no changes. URLs expire 48h after their per-URL timestamp
- * (post date or extraction time), matching the original behaviour, so a job can
- * re-notify if it reappears long after the window.
+ * orchestrators need no changes. This is the PER-USER (Telegram) dedup only:
+ * URLs expire 7 days after their per-URL timestamp (a job reappearing after a
+ * week is treated as new), and expired rows are pruned by the cron tick. The
+ * stats/DB dedup (Job/UserJob) is separate — global and kept forever.
  */
-const CACHE_EXPIRY_HOURS = 48;
+const CACHE_EXPIRY_HOURS = 24 * 7; // 7 days
 
 export class SentUrlCache {
   private readonly namespace: string;
@@ -47,7 +48,7 @@ export class SentUrlCache {
     return expiry !== undefined && expiry.getTime() > Date.now();
   }
 
-  /** Stage a URL for persistence; `timestamp` drives the 48h expiry. */
+  /** Stage a URL for persistence; `timestamp` drives the 7-day expiry. */
   add(url: string, timestamp?: string | Date): void {
     this.pending.set(this.normalize(url), this.expiryFrom(timestamp));
   }
@@ -80,4 +81,14 @@ export class SentUrlCache {
     if (count > 0) logger.info(`Purged ${count} expired URLs [${this.namespace}]`);
     return count;
   }
+}
+
+/**
+ * Global housekeeping: delete every expired per-user dedup row (all namespaces).
+ * Called from the cron tick. The stats dedup (Job/UserJob) is never pruned.
+ */
+export async function pruneExpiredSentUrls(): Promise<number> {
+  const { count } = await prisma.sentUrl.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  if (count > 0) logger.info(`pruned ${count} expired sent-url dedup rows`);
+  return count;
 }

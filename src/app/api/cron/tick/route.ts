@@ -6,6 +6,7 @@ import {
   pruneRunHistory,
   pruneOldDescriptions,
 } from "@/core/workers/run-user";
+import { pruneExpiredSentUrls } from "@/db/FUNC-dedup-repo";
 import { logger } from "@/lib/logger";
 
 /**
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
     const purgedUnverified = await purgeUnverifiedUsers().catch(() => 0);
     await pruneRunHistory().catch(() => ({ scheduleRuns: 0, cronRuns: 0 }));
     await pruneOldDescriptions().catch(() => 0);
+    await pruneExpiredSentUrls().catch(() => 0);
     logger.info("cron tick complete", { ran: result.ran, purgedUnverified });
     return NextResponse.json({ success: true, timestamp: new Date().toISOString(), purgedUnverified, ...result });
   } catch (error) {
