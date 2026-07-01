@@ -77,17 +77,37 @@ function goatRulesFor(config: {
   };
 }
 
-/** Notification pipeline for one user: their notify-feeds → their Telegram. */
+/**
+ * check-jobs pipeline for one user: notify-feeds → Telegram AND → the stats DB.
+ *
+ * Two independent dedup layers:
+ *  - Telegram send: per-user (`SentUrl` namespace inside checkAndSendJobs).
+ *  - DB save: global via ingestFeeds/insertJobs — one Job row per url, with
+ *    `sharedToStats` upgraded (never downgraded) if any owning feed shares it.
+ * Each job's share status is the feed's `shareToStats` at run time.
+ */
 export async function runCheckJobsForUser(userId: string) {
   const [channels, feeds, goatConfig] = await Promise.all([
     loadChannels(userId),
-    prisma.feed.findMany({ where: { userId, active: true, notify: true }, select: { url: true } }),
+    prisma.feed.findMany({
+      where: { userId, active: true, notify: true },
+      select: { id: true, url: true, shareToStats: true },
+    }),
     prisma.goatConfig.findUnique({ where: { userId } }),
   ]);
   const main = channels.main;
 
-  if (!main) return { skipped: "no main telegram channel" };
   if (feeds.length === 0) return { skipped: "no notify feeds" };
+
+  // 1. Persist to the DB so these posts appear in stats (personal or shared per
+  //    the feed's current status). Runs regardless of Telegram config.
+  const ingest = await ingestFeeds(
+    userId,
+    feeds.map((f) => ({ url: f.url, feedId: f.id, shareToStats: f.shareToStats })),
+  );
+
+  // 2. Telegram notification (needs a main channel).
+  if (!main) return { skipped: "no main telegram channel", ingested: ingest.newJobs };
 
   const config: JobMonitorConfig = {
     feedUrls: feeds.map((f) => f.url),
@@ -101,7 +121,8 @@ export async function runCheckJobsForUser(userId: string) {
     appliedNamespace: userId,
     goat: goatRulesFor(goatConfig),
   };
-  return checkAndSendJobs(config);
+  const tg = await checkAndSendJobs(config);
+  return { ...tg, ingested: ingest.newJobs };
 }
 
 /** Ingest all the user's active feeds into the DB (personal + shared stats). */
