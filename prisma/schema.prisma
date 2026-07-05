@@ -38,8 +38,10 @@ model Job {
   industry  String
   seniority String
 
-  // Heavy text — kept on the same row but excluded from list/stat selects.
-  description String @db.Text
+  // Heavy description text lives in the slim JobDescription side table (own
+  // trigram index, 6-month TTL) so this hot fact table stays narrow. Recreatable
+  // from the R2 cold archive. null relation = description pruned / never stored.
+  descriptionRow JobDescription?
 
   keywords         String[]
   certificates     String[]
@@ -97,9 +99,46 @@ model Job {
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_title_trgm_idx")
   @@index([company(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_company_trgm_idx")
   @@index([location(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_location_trgm_idx")
-  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "jobs_description_trgm_idx")
 
   @@map("jobs")
+}
+
+/// Slim side table for the heavy job description blob. Split out of `jobs` so the
+/// hot fact table (scanned by every stats aggregate) stays narrow. Keeps the
+/// description trigram index HERE — and only for the pruning window (old rows are
+/// deleted by pruneOldDescriptions), so the index covers a small recent set, not
+/// the whole history. Full text is recreatable from the R2 cold archive.
+model JobDescription {
+  jobId String @id @map("job_id") @db.Uuid
+  text  String @db.Text
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Word-inside-text search (ILIKE '%q%') for the stats `q` free-text facet.
+  @@index([text(ops: raw("gin_trgm_ops"))], type: Gin, map: "job_descriptions_text_trgm_idx")
+  @@map("job_descriptions")
+}
+
+/// Progress record for an async R2 backfill run. The admin route creates one,
+/// launches the import detached, and returns the id immediately; the browser
+/// polls this row for live status/logs (no long-held request -> no gateway 502).
+model BackfillJob {
+  id         String    @id @default(uuid()) @db.Uuid
+  status     String    @default("running") // running | done | failed
+  phase      String    @default("starting") // human-readable current step
+  monthsDone Int       @default(0) @map("months_done")
+  daysDone   Int       @default(0) @map("days_done")
+  read       Int       @default(0)
+  inserted   Int       @default(0)
+  // Rolling tail of log lines ({ level, message, ts }) for the admin monitor.
+  logs       Json      @default("[]")
+  error      String?
+  ownerId    String    @map("owner_id") @db.Uuid
+  startedAt  DateTime  @default(now()) @map("started_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  finishedAt DateTime? @map("finished_at")
+
+  @@index([status, startedAt])
+  @@map("backfill_jobs")
 }
 
 /// Links a user (and the feed it came from) to a shared Job row. Per-user
