@@ -432,15 +432,17 @@ export async function pruneRunHistory(days = 7): Promise<{ scheduleRuns: number;
 }
 
 /**
- * Drop the heavy `description` text from jobs older than `months` (default 6).
+ * Drop the heavy description text for jobs older than `months` (default 6).
  * All analytical fields (title, dates, industry, keywords, salary, …) are kept
- * forever for the time-series stats; only the big text blob is cleared.
+ * forever for the time-series stats; only the big text blob is cleared. The text
+ * now lives in the job_descriptions side table, so pruning = deleting those rows
+ * (which also shrinks the trigram index to the recent window). The full text
+ * stays recreatable from the R2 cold archive.
  */
 export async function pruneOldDescriptions(months = 6): Promise<number> {
   const cutoff = new Date(Date.now() - months * 30 * 24 * 60 * 60 * 1000);
-  const res = await prisma.job.updateMany({
-    where: { extractedDate: { lt: cutoff }, NOT: { description: "" } },
-    data: { description: "" },
+  const res = await prisma.jobDescription.deleteMany({
+    where: { job: { extractedDate: { lt: cutoff } } },
   });
   if (res.count > 0) logger.info(`cleared ${res.count} job descriptions older than ${months} months`);
   return res.count;
