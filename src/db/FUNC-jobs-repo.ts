@@ -54,12 +54,16 @@ function toJobRow(job: JobStatistic, sharedToStats: boolean): Prisma.JobCreateMa
   };
 }
 
+// Postgres text rejects NUL (0x00) + other C0 control bytes (keep tab/LF/CR);
+// strip them so a single scraped/imported bad byte can't fail the whole batch.
+const CONTROL_RE = new RegExp("[\u0000-\u0008\u000B\u000C\u000E-\u001F]", "g");
+
 /** Upsert descriptions for the given jobs into the side table (one query). */
 async function writeDescriptions(pairs: { jobId: string; text: string }[]): Promise<void> {
   const withText = pairs.filter((p) => p.text && p.text.trim() !== "");
   if (withText.length === 0) return;
   const ids = withText.map((p) => p.jobId);
-  const texts = withText.map((p) => p.text);
+  const texts = withText.map((p) => p.text.replace(CONTROL_RE, ""));
   await prisma.$executeRaw(Prisma.sql`
     INSERT INTO job_descriptions (job_id, text)
     SELECT * FROM unnest(${ids}::uuid[], ${texts}::text[])

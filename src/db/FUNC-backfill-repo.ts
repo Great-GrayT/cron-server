@@ -24,6 +24,25 @@ export interface BackfillProgress {
 
 const LOG_TAIL = 250; // keep only the most recent lines in the row
 
+/**
+ * Mark any still-"running" backfill as failed. Called once on server boot: if a
+ * job is running when the process starts, the worker that owned it died (crash /
+ * OOM / redeploy) and can never finish — so flip it to failed with a clear reason
+ * instead of leaving the admin page polling "running" forever.
+ */
+export async function failOrphanedBackfills(): Promise<number> {
+  const res = await prisma.backfillJob.updateMany({
+    where: { status: "running" },
+    data: {
+      status: "failed",
+      phase: "failed",
+      error: "interrupted by a server restart (likely out-of-memory) — safe to re-run; it resumes idempotently",
+      finishedAt: new Date(),
+    },
+  });
+  return res.count;
+}
+
 export async function createBackfillJob(ownerId: string): Promise<string> {
   const row = await prisma.backfillJob.create({
     data: { ownerId, status: "running", phase: "starting" },

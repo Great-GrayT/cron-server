@@ -53,9 +53,18 @@ interface R2JobMetadata {
   academic_degrees?: string[];
 }
 
-function str(v: unknown): string {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
+// Postgres text columns reject NUL (0x00); strip it plus the other C0 control
+// bytes (keep tab \t, LF \n, CR \r) that scraped/parquet text sometimes carries,
+// so a single bad byte can't fail a whole batch.
+const CONTROL_RE = new RegExp("[\u0000-\u0008\u000B\u000C\u000E-\u001F]", "g");
+function clean(s: string): string {
+  return s.replace(CONTROL_RE, "");
 }
+
+function str(v: unknown): string {
+  return clean(typeof v === "string" ? v : v == null ? "" : String(v));
+}
+
 function arr(v: unknown): string[] {
   if (Array.isArray(v)) return v.map(str).filter(Boolean);
   if (typeof v === "string" && v.trim().startsWith("[")) {
@@ -68,6 +77,12 @@ function arr(v: unknown): string[] {
   }
   return [];
 }
+
+// Cap stored description length. Critical for memory: a day holds ALL its
+// descriptions in a Map while streaming, so ~10k jobs * cap bounds the peak
+// (4k chars => ~40MB/day worst case). Enough for search/preview; the full text
+// stays recreatable from the R2 cold archive.
+const MAX_DESC = 4000;
 
 function parseExperience(raw: string | null | undefined): number | null {
   if (!raw) return null;
@@ -112,8 +127,9 @@ interface DescriptionRecord {
   text?: string;
 }
 
-/** Load a day's descriptions into a keyed map (by id and url). Bounded to one
- * day, then released. Missing file -> empty map. */
+/** Load a day's descriptions into a keyed map (by id and url). Text is cleaned +
+ * length-capped at load so the map's memory footprint is bounded. Released after
+ * the day. Missing file -> empty map. */
 async function loadDayDescriptions(
   creds: R2Credentials,
   key: string | undefined,
@@ -122,7 +138,9 @@ async function loadDayDescriptions(
   if (!key) return map;
   await streamRecords<DescriptionRecord>(creds, key, async (batch) => {
     for (const d of batch) {
-      const text = d.description ?? d.text ?? "";
+      const raw = d.description ?? d.text ?? "";
+      if (!raw) continue;
+      const text = clean(raw).slice(0, MAX_DESC);
       if (!text) continue;
       if (d.id) map.set(`id:${d.id}`, text);
       if (d.url) map.set(`url:${d.url}`, text);

@@ -5,6 +5,7 @@ import {
   pruneRunHistory,
   pruneOldDescriptions,
 } from "@/core/workers/run-user";
+import { failOrphanedBackfills } from "@/db/FUNC-backfill-repo";
 
 /**
  * In-process cron scheduler. The server drives its own schedules — no external
@@ -53,6 +54,11 @@ export function startScheduler(): void {
   if (started) return;
   started = true;
   logger.info(`scheduler started (tick every ${TICK_MS}ms)`);
+  // A backfill still marked "running" at boot lost its worker to a crash/restart
+  // — fail it so the admin page stops polling a job that can never finish.
+  void failOrphanedBackfills()
+    .then((n) => n > 0 && logger.info(`marked ${n} orphaned backfill(s) as failed`))
+    .catch((e) => logger.error("failOrphanedBackfills failed", e));
   void tick();
   const timer = setInterval(() => void tick(), TICK_MS);
   // Let the process exit cleanly on shutdown — the HTTP server keeps the event

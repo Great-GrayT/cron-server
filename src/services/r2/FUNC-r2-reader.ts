@@ -59,15 +59,25 @@ export function envR2Credentials(): R2Credentials | null {
   return { accountId, accessKeyId, secretAccessKey, bucket };
 }
 
+// Reuse a single S3Client per credentials. A backfill issues thousands of GETs
+// (every parquet slice, every day's stream); building a fresh client each time
+// leaks connection pools/sockets and was OOM-ing the 512m container.
+let cachedClient: { key: string; s3: S3Client } | null = null;
+
 function client(c: R2Credentials): { s3: S3Client; bucket: string } {
-  return {
-    bucket: c.bucket,
-    s3: new S3Client({
-      region: "auto",
-      endpoint: `https://${c.accountId}.r2.cloudflarestorage.com`,
-      credentials: { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey },
-    }),
-  };
+  const key = `${c.accountId}:${c.bucket}:${c.accessKeyId}`;
+  if (cachedClient?.key !== key) {
+    cachedClient?.s3.destroy();
+    cachedClient = {
+      key,
+      s3: new S3Client({
+        region: "auto",
+        endpoint: `https://${c.accountId}.r2.cloudflarestorage.com`,
+        credentials: { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey },
+      }),
+    };
+  }
+  return { s3: cachedClient.s3, bucket: c.bucket };
 }
 
 function isNotFound(error: unknown): boolean {
