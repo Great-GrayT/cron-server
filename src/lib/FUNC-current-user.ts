@@ -27,8 +27,30 @@ export function requireUser(req: Request): { user: JwtPayload } | { response: Ne
 }
 
 /**
+ * Like requireUser but ALSO verifies the token hasn't been revoked (its embedded
+ * `ver` still matches the user's current token_version) and the account still
+ * exists. Costs one indexed DB read — use it on sensitive mutations (password,
+ * account deletion) where a revoked/stale token must be rejected immediately.
+ * Read-heavy routes keep the cheap sync `requireUser` + short token TTL.
+ */
+export async function requireFreshUser(
+  req: Request,
+): Promise<{ user: JwtPayload } | { response: NextResponse }> {
+  const user = getUser(req);
+  if (!user) {
+    return { response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  }
+  const row = await prisma.user.findUnique({ where: { id: user.sub }, select: { tokenVersion: true } });
+  if (!row || row.tokenVersion !== user.ver) {
+    return { response: NextResponse.json({ error: "session expired" }, { status: 401 }) };
+  }
+  return { user };
+}
+
+/**
  * Admin gate. Re-checks the role in the DB (not just the JWT) so promoting a
- * user to admin via a manual DB flag takes effect without forcing a re-login.
+ * user to admin via a manual DB flag takes effect without forcing a re-login,
+ * and rejects revoked tokens (token_version mismatch).
  */
 export async function requireAdmin(
   req: Request,
@@ -37,8 +59,14 @@ export async function requireAdmin(
   if (!user) {
     return { response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
   }
-  const row = await prisma.user.findUnique({ where: { id: user.sub }, select: { role: true } });
-  if (row?.role !== "admin") {
+  const row = await prisma.user.findUnique({
+    where: { id: user.sub },
+    select: { role: true, tokenVersion: true },
+  });
+  if (!row || row.tokenVersion !== user.ver) {
+    return { response: NextResponse.json({ error: "session expired" }, { status: 401 }) };
+  }
+  if (row.role !== "admin") {
     return { response: NextResponse.json({ error: "forbidden (admin only)" }, { status: 403 }) };
   }
   return { user };

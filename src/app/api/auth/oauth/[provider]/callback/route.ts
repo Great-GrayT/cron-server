@@ -54,7 +54,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ provider
       });
     }
 
-    const token = signJwt({ sub: user.id, email: user.email, role: user.role });
+    const token = signJwt({ sub: user.id, email: user.email, role: user.role, tokenVersion: user.tokenVersion });
     return NextResponse.redirect(`${frontendUrl()}/auth/callback#token=${encodeURIComponent(token)}`);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

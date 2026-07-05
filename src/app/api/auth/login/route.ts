@@ -37,7 +37,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const token = signJwt({ sub: user.id, email: user.email, role: user.role });
+    const token = signJwt({ sub: user.id, email: user.email, role: user.role, tokenVersion: user.tokenVersion });
     const safeUser = await prisma.user.findUnique({ where: { id: user.id }, select: PUBLIC_USER_SELECT });
     return NextResponse.json({ token, user: safeUser });
   } catch (error) {

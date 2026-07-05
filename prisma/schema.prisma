@@ -201,6 +201,11 @@ model User {
   /// true; unverified accounts older than 7 days are purged by the cron tick.
   emailVerified Boolean  @default(false) @map("email_verified")
 
+  /// Session epoch for stateless JWT revocation. Every token embeds the version
+  /// it was signed at; bumping this (on password change/reset, or "sign out
+  /// everywhere") instantly invalidates all previously-issued tokens.
+  tokenVersion Int @default(0) @map("token_version")
+
   // Profile picture: avatarUrl = Google/external URL; avatarData = uploaded
   // base64 data URL (stored in-DB per product decision).
   avatarUrl  String? @map("avatar_url")

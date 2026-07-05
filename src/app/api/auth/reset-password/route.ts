@@ -17,10 +17,16 @@ export async function POST(req: Request) {
     if (!userId) {
       return NextResponse.json({ error: "invalid or expired token" }, { status: 400 });
     }
-    // A successful reset also confirms email ownership.
+    // A successful reset confirms email ownership AND revokes every existing
+    // token (bump token_version) — so a leaked/stolen session can't survive a
+    // password reset. The user logs in fresh afterwards.
     await prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: hashPassword(password), emailVerified: true },
+      data: {
+        passwordHash: hashPassword(password),
+        emailVerified: true,
+        tokenVersion: { increment: 1 },
+      },
     });
     return NextResponse.json({ ok: true });
   } catch (error) {

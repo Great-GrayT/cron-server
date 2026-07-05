@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { prisma } from "@/db/client";
 import { requireUser } from "@/lib/FUNC-current-user";
-import { hashPassword, verifyPassword } from "@/lib/FUNC-auth";
+import { hashPassword, verifyPassword, signJwt } from "@/lib/FUNC-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,11 +34,20 @@ export async function POST(req: Request) {
       }
     }
 
-    await prisma.user.update({
+    // Changing the password revokes all existing tokens (bump token_version);
+    // issue a fresh token so THIS session stays logged in.
+    const updated = await prisma.user.update({
       where: { id: auth.user.sub },
-      data: { passwordHash: hashPassword(password) },
+      data: { passwordHash: hashPassword(password), tokenVersion: { increment: 1 } },
+      select: { id: true, email: true, role: true, tokenVersion: true },
     });
-    return NextResponse.json({ ok: true });
+    const token = signJwt({
+      sub: updated.id,
+      email: updated.email,
+      role: updated.role,
+      tokenVersion: updated.tokenVersion,
+    });
+    return NextResponse.json({ ok: true, token });
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json({ error: "invalid input", issues: error.issues }, { status: 400 });

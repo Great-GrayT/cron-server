@@ -27,6 +27,7 @@ export interface JwtPayload {
   sub: string; // user id
   email: string;
   role: string;
+  ver: number; // token_version at signing time — for stateless revocation
   iat: number;
   exp: number;
 }
@@ -39,13 +40,24 @@ function secret(): string {
   return s;
 }
 
-const TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
+// Shorter-lived access token (env-overridable). Shorter TTL bounds the window a
+// stolen token is usable; combine with tokenVersion for explicit revocation.
+const TOKEN_TTL_SEC = Number(process.env.JWT_TTL_HOURS ?? 72) * 60 * 60;
 
-export function signJwt(claims: { sub: string; email: string; role: string }): string {
+export function signJwt(claims: { sub: string; email: string; role: string; tokenVersion: number }): string {
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })));
   const payload = b64url(
-    Buffer.from(JSON.stringify({ ...claims, iat: now, exp: now + TOKEN_TTL_SEC } satisfies JwtPayload)),
+    Buffer.from(
+      JSON.stringify({
+        sub: claims.sub,
+        email: claims.email,
+        role: claims.role,
+        ver: claims.tokenVersion,
+        iat: now,
+        exp: now + TOKEN_TTL_SEC,
+      } satisfies JwtPayload),
+    ),
   );
   const sig = b64url(createHmac("sha256", secret()).update(`${header}.${payload}`).digest());
   return `${header}.${payload}.${sig}`;
