@@ -163,8 +163,10 @@ async function s3AsyncBuffer(c: R2Credentials, key: string): Promise<AsyncBuffer
         new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=${start}-${last}` }),
       );
       const bytes = await res.Body!.transformToByteArray();
-      // Return a tightly-sized ArrayBuffer for hyparquet.
-      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      // Copy into a tightly-sized, standalone ArrayBuffer for hyparquet.
+      const out = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(out).set(bytes);
+      return out;
     },
   };
 }
