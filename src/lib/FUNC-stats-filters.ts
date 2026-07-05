@@ -114,12 +114,13 @@ export function wherePrisma(f: StatsFilters, userId?: string): Prisma.JobWhereIn
   }
 
   // Word-inside-text search across all text columns (trigram-indexed ILIKE).
+  // description lives in the side table now — search it via the relation.
   if (f.q) {
     where.OR = [
       { title: { contains: f.q, mode: "insensitive" } },
       { company: { contains: f.q, mode: "insensitive" } },
       { location: { contains: f.q, mode: "insensitive" } },
-      { description: { contains: f.q, mode: "insensitive" } },
+      { descriptionRow: { text: { contains: f.q, mode: "insensitive" } } },
     ];
   }
   return where;
@@ -160,8 +161,10 @@ export function whereSql(f: StatsFilters, userId?: string): Prisma.Sql {
 
   if (f.q) {
     const like = `%${f.q}%`;
+    // description moved to job_descriptions; match it with an id-subquery so the
+    // moved trigram index is still used.
     c.push(
-      Prisma.sql`(title ILIKE ${like} OR company ILIKE ${like} OR location ILIKE ${like} OR description ILIKE ${like})`,
+      Prisma.sql`(title ILIKE ${like} OR company ILIKE ${like} OR location ILIKE ${like} OR id IN (SELECT jd.job_id FROM "job_descriptions" jd WHERE jd.text ILIKE ${like}))`,
     );
   }
 

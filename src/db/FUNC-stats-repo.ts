@@ -301,22 +301,36 @@ const LIST_SELECT = {
 export async function jobsList(f: StatsFilters, userId?: string) {
   const where = wherePrisma(f, userId);
   const sortField = f.sort === "extractedDate" ? "extractedDate" : "postedDate";
+  // description now lives in the JobDescription side table — pull it via relation
+  // when requested (flatten to a `description` string so the API shape is stable).
+  const select = f.withDescription
+    ? { ...LIST_SELECT, descriptionRow: { select: { text: true } } }
+    : LIST_SELECT;
   const [total, rows] = await Promise.all([
     prisma.job.count({ where }),
     prisma.job.findMany({
       where,
-      select: f.withDescription ? { ...LIST_SELECT, description: true } : LIST_SELECT,
+      select,
       orderBy: { [sortField]: f.order },
       skip: (f.page - 1) * f.pageSize,
       take: f.pageSize,
     }),
   ]);
-  return { total, page: f.page, pageSize: f.pageSize, totalPages: Math.ceil(total / f.pageSize), jobs: rows };
+  const jobs = f.withDescription
+    ? (rows as (Record<string, unknown> & { descriptionRow?: { text: string } | null })[]).map(
+        ({ descriptionRow, ...j }) => ({ ...j, description: descriptionRow?.text ?? "" }),
+      )
+    : rows;
+  return { total, page: f.page, pageSize: f.pageSize, totalPages: Math.ceil(total / f.pageSize), jobs };
 }
 
 export async function jobDescription(id: string): Promise<string | null> {
-  const row = await prisma.job.findUnique({ where: { id }, select: { description: true } });
-  return row?.description ?? null;
+  // Confirm the job exists (distinguish "no description" from "not found"), then
+  // read the heavy text from the side table.
+  const job = await prisma.job.findUnique({ where: { id }, select: { id: true } });
+  if (!job) return null;
+  const row = await prisma.jobDescription.findUnique({ where: { jobId: id }, select: { text: true } });
+  return row?.text ?? "";
 }
 
 /** Distinct YYYY-MM posting months present — powers the month-picker dropdown. */
