@@ -58,7 +58,8 @@ interface R2JobMetadata {
 // so a single bad byte can't fail a whole batch.
 const CONTROL_RE = new RegExp("[\u0000-\u0008\u000B\u000C\u000E-\u001F]", "g");
 function clean(s: string): string {
-  return s.replace(CONTROL_RE, "");
+  // Strip C0 controls AND lone UTF-16 surrogates (invalid UTF-8 → Postgres rejects).
+  return s.replace(CONTROL_RE, "").replace(/\p{Cs}/gu, "");
 }
 
 function str(v: unknown): string {

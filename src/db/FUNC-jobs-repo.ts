@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/client";
+import { logger } from "@/lib/logger";
 import type { JobStatistic } from "@/types/stats";
 
 /**
@@ -54,21 +55,56 @@ function toJobRow(job: JobStatistic, sharedToStats: boolean): Prisma.JobCreateMa
   };
 }
 
-// Postgres text rejects NUL (0x00) + other C0 control bytes (keep tab/LF/CR);
-// strip them so a single scraped/imported bad byte can't fail the whole batch.
+// Postgres text rejects NUL (0x00) + other C0 control bytes (keep tab/LF/CR) and
+// can't store lone UTF-16 surrogates (they don't encode to valid UTF-8) — strip
+// both so a single bad byte from scraped/parquet text can't fail the batch.
 const CONTROL_RE = new RegExp("[\u0000-\u0008\u000B\u000C\u000E-\u001F]", "g");
 
-/** Upsert descriptions for the given jobs into the side table (one query). */
+const LONE_SURROGATE_RE = /\p{Cs}/gu; // `u` flag => valid emoji pairs are one non-surrogate code point
+function sanitizeText(s: string): string {
+  return s.replace(CONTROL_RE, "").replace(LONE_SURROGATE_RE, "");
+}
+
+/**
+ * Upsert descriptions into the side table. BEST-EFFORT: descriptions are
+ * recreatable from the R2 archive, so a bad row must never abort the import
+ * (which would leave the day's jobs inserted-but-unlinked). Deduped by jobId
+ * (ON CONFLICT can't touch a row twice per statement); on a batch failure, retry
+ * per-row and skip only the offender. Never throws.
+ */
 async function writeDescriptions(pairs: { jobId: string; text: string }[]): Promise<void> {
-  const withText = pairs.filter((p) => p.text && p.text.trim() !== "");
-  if (withText.length === 0) return;
-  const ids = withText.map((p) => p.jobId);
-  const texts = withText.map((p) => p.text.replace(CONTROL_RE, ""));
-  await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO job_descriptions (job_id, text)
-    SELECT * FROM unnest(${ids}::uuid[], ${texts}::text[])
-    ON CONFLICT (job_id) DO UPDATE SET text = EXCLUDED.text
-  `);
+  const byId = new Map<string, string>();
+  for (const p of pairs) {
+    const text = sanitizeText(p.text ?? "").trim();
+    if (text) byId.set(p.jobId, text); // last write wins; dedupes jobId
+  }
+  if (byId.size === 0) return;
+  const ids = [...byId.keys()];
+  const texts = ids.map((id) => byId.get(id)!);
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO job_descriptions (job_id, text)
+      SELECT * FROM unnest(${ids}::uuid[], ${texts}::text[])
+      ON CONFLICT (job_id) DO UPDATE SET text = EXCLUDED.text
+    `);
+  } catch (err) {
+    logger.warn(
+      `writeDescriptions batch of ${byId.size} failed; retrying per-row: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    let skipped = 0;
+    for (const id of ids) {
+      try {
+        await prisma.$executeRaw(Prisma.sql`
+          INSERT INTO job_descriptions (job_id, text) VALUES (${id}::uuid, ${byId.get(id)!})
+          ON CONFLICT (job_id) DO UPDATE SET text = EXCLUDED.text
+        `);
+      } catch {
+        skipped++; // recreatable from R2 — drop this one, keep going
+      }
+    }
+    if (skipped) logger.warn(`writeDescriptions skipped ${skipped} bad description(s)`);
+  }
 }
 
 /** Batch dedup for one user: which of these URLs are already linked to them? */
