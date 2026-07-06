@@ -33,6 +33,10 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# Cap V8's heap below the 512m cgroup so it GCs aggressively instead of the
+# kernel OOM-killing the container (the backfill briefly holds a decoded parquet
+# row group + a day's descriptions). Leaves headroom for off-heap buffers.
+ENV NODE_OPTIONS=--max-old-space-size=384
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 --ingroup nodejs nextjs
 

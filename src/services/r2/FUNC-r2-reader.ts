@@ -210,13 +210,17 @@ export async function streamParquet<T = Record<string, unknown>>(
   for (const group of metadata.row_groups) {
     const rows = Number(group.num_rows);
     const rowEnd = rowStart + rows;
-    // Read one row group; sub-batch if the group is larger than batchSize.
-    for (let from = rowStart; from < rowEnd; from += batchSize) {
-      const to = Math.min(from + batchSize, rowEnd);
-      const objs = (await parquetReadObjects({ file, metadata, rowStart: from, rowEnd: to })) as T[];
-      if (objs.length) {
-        await onBatch(objs);
-        total += objs.length;
+    // Decode each row group EXACTLY ONCE. Parquet can't decode a sub-range
+    // without the whole column chunk, so calling parquetReadObjects per 1k
+    // sub-batch re-downloaded + re-decompressed the entire group every time —
+    // that repeated allocation churned the heap past the 512m cgroup and got the
+    // container OOM-killed mid-import. Decode the group, then slice in JS.
+    const objs = (await parquetReadObjects({ file, metadata, rowStart, rowEnd })) as T[];
+    for (let i = 0; i < objs.length; i += batchSize) {
+      const slice = objs.slice(i, i + batchSize);
+      if (slice.length) {
+        await onBatch(slice);
+        total += slice.length;
       }
     }
     rowStart = rowEnd;
