@@ -156,7 +156,7 @@ export async function refreshDays(days: string[]): Promise<void> {
 
       prisma.$executeRaw(Prisma.sql`
         INSERT INTO stats_dow_hour (day,dow,hour,cnt)
-        SELECT ${d}, EXTRACT(DOW FROM extracted_date)::int, EXTRACT(HOUR FROM extracted_date)::int, COUNT(*)::int
+        SELECT ${d}, EXTRACT(DOW FROM posted_date)::int, EXTRACT(HOUR FROM posted_date)::int, COUNT(*)::int
         FROM "jobs" WHERE ${win}
         GROUP BY 2, 3
       `),
@@ -244,7 +244,7 @@ export async function rebuildAll(): Promise<void> {
 
     prisma.$executeRaw(Prisma.sql`
       INSERT INTO stats_dow_hour (day,dow,hour,cnt)
-      SELECT posted_date::date, EXTRACT(DOW FROM extracted_date)::int, EXTRACT(HOUR FROM extracted_date)::int, COUNT(*)::int
+      SELECT posted_date::date, EXTRACT(DOW FROM posted_date)::int, EXTRACT(HOUR FROM posted_date)::int, COUNT(*)::int
       FROM "jobs" WHERE ${win}
       GROUP BY 1, 2, 3
     `),

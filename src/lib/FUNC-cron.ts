@@ -24,6 +24,15 @@ function parseField(field: string, min: number, max: number): Set<number> {
   return out;
 }
 
+/**
+ * True if `date`'s UTC hour falls within an hour spec (e.g. "8-21", "0,12",
+ * "*"). Reuses the same field grammar. Used to gate the global pipeline to an
+ * active window regardless of what the external scheduler is configured to do.
+ */
+export function hoursMatch(hourSpec: string, date: Date): boolean {
+  return parseField(hourSpec, 0, 23).has(date.getUTCHours());
+}
+
 /** True if `expr` is a syntactically valid 5-field cron. */
 export function isValidCron(expr: string): boolean {
   const f = expr.trim().split(/\s+/);

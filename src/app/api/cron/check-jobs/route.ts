@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkAndSendJobs, defaultMainConfig } from "@/core/workers/job-monitor";
 import { validateEnvironmentVariables, verifyCronRequest } from "@/lib/validation";
 import { refreshRecent } from "@/db/FUNC-stats-rollup";
+import { hoursMatch } from "@/lib/FUNC-cron";
 import { logger } from "@/lib/logger";
 
 /**
@@ -19,6 +20,23 @@ export async function GET(request: NextRequest) {
   if (!verifyCronRequest(authHeader)) {
     logger.warn("Unauthorized cron request attempt");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Optional active-hours window, enforced server-side so the pipeline only runs
+  // during CRON_ACTIVE_HOURS (UTC hour spec, e.g. "8-21") regardless of how the
+  // external scheduler is configured. Unset = always run. Skips are 200 (not an
+  // error) so the scheduler doesn't treat them as failures.
+  const activeHours = process.env.CRON_ACTIVE_HOURS?.trim();
+  if (activeHours && !hoursMatch(activeHours, new Date())) {
+    const hour = new Date().getUTCHours();
+    logger.info(`Cron skipped: hour ${hour} UTC outside active window ${activeHours}`);
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      reason: `outside active hours (${activeHours} UTC)`,
+      hourUtc: hour,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   try {

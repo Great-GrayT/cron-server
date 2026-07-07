@@ -184,8 +184,8 @@ export async function heatmap(f: StatsFilters, userId?: string) {
     return rollupHeatmap(from, to);
   }
   return prisma.$queryRaw<{ dow: number; hour: number; c: number }[]>(Prisma.sql`
-    SELECT EXTRACT(DOW FROM extracted_date)::int AS dow,
-           EXTRACT(HOUR FROM extracted_date)::int AS hour,
+    SELECT EXTRACT(DOW FROM posted_date)::int AS dow,
+           EXTRACT(HOUR FROM posted_date)::int AS hour,
            COUNT(*)::int AS c
     FROM "jobs" ${whereSql(f, userId)}
     GROUP BY 1, 2 ORDER BY 1, 2
@@ -198,7 +198,7 @@ export async function hourly(f: StatsFilters, userId?: string) {
     return rollupHourly(from, to);
   }
   return prisma.$queryRaw<{ hour: number; c: number }[]>(Prisma.sql`
-    SELECT EXTRACT(HOUR FROM extracted_date)::int AS hour, COUNT(*)::int AS c
+    SELECT EXTRACT(HOUR FROM posted_date)::int AS hour, COUNT(*)::int AS c
     FROM "jobs" ${whereSql(f, userId)}
     GROUP BY 1 ORDER BY 1
   `);
