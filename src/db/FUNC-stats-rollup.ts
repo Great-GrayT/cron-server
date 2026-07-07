@@ -190,6 +190,19 @@ export async function refreshRecent(nDays = 35): Promise<void> {
   invalidateReady();
 }
 
+/**
+ * Repair historical rows whose posted_date is out of [2026-01-01, now]: RSS feeds
+ * carry garbage pubDates (epoch 1970, year 0025, future) that new inserts already
+ * clamp (safePostedDate), but existing rows still hold them and show up as
+ * tomorrow / pre-2026 buckets. Returns the number of rows fixed.
+ */
+export async function clampPostedDates(): Promise<number> {
+  const n = await prisma.$executeRaw`
+    UPDATE "jobs" SET posted_date = now()
+    WHERE posted_date < DATE '2026-01-01' OR posted_date > now()`;
+  return n;
+}
+
 /** Full set-based rebuild over every day present — run once after a bulk import. */
 export async function rebuildAll(): Promise<void> {
   await ensureRollupTables();
