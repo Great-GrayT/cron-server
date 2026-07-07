@@ -17,6 +17,24 @@ function safeDate(value: string | Date | undefined): Date {
   return Number.isNaN(d.getTime()) ? new Date() : d;
 }
 
+// Earliest plausible posting date. RSS feeds frequently carry garbage pubDates
+// (epoch 1970, year 0025, or dates in the future) which otherwise scatter jobs
+// across nonsense months and make the stats month-views look empty.
+const MIN_POSTED_DATE = new Date(Date.UTC(2026, 0, 1)); // 2026-01-01T00:00:00Z
+
+/**
+ * postedDate sanitiser: invalid, before 2026-01-01, or in the future all fall
+ * back to "now" so a job always lands in a sane, current window.
+ */
+function safePostedDate(value: string | Date | undefined): Date {
+  const now = new Date();
+  if (!value) return now;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return now;
+  if (d < MIN_POSTED_DATE || d > now) return now;
+  return d;
+}
+
 /** Owner context attached to every inserted job (multi-tenant). */
 export interface JobOwner {
   userId: string;
@@ -35,7 +53,7 @@ function toJobRow(job: JobStatistic, sharedToStats: boolean): Prisma.JobCreateMa
     country: job.country,
     city: job.city,
     region: job.region,
-    postedDate: safeDate(job.postedDate),
+    postedDate: safePostedDate(job.postedDate),
     extractedDate: safeDate(job.extractedDate),
     industry: job.industry,
     seniority: job.seniority,

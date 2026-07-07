@@ -168,6 +168,38 @@ export async function ingestFeeds(userId: string, feeds: FeedDef[]): Promise<Sta
   return { processed, newJobs, skippedKnown };
 }
 
+/**
+ * Persist an already-parsed batch of RSS items into the public stats DB, deduped
+ * by url against what the system account has seen. Used by the check-jobs
+ * (Telegram) pipeline so every monitored job lands in stats — independent of the
+ * Telegram recency/cache filters. Only NEW urls are analysed + inserted, so
+ * steady-state runs are cheap.
+ */
+export async function ingestParsedJobs(items: JobItem[]): Promise<StatsIngestResult> {
+  const candidates = items.filter((j) => j.link && j.link.includes("http"));
+  if (candidates.length === 0) return { processed: 0, newJobs: 0, skippedKnown: 0 };
+
+  const userId = await getSystemUserId();
+  const existing = await findExistingUrls(userId, candidates.map((j) => j.link));
+
+  const stats: JobStatistic[] = [];
+  let processed = 0;
+  let skippedKnown = 0;
+  for (const rssJob of candidates) {
+    processed++;
+    if (existing.has(rssJob.link)) {
+      skippedKnown++;
+      continue;
+    }
+    const stat = analyzeRssJob(rssJob);
+    if (stat) stats.push(stat);
+  }
+
+  const newJobs = await insertJobs(stats, { userId, feedId: null, shareToStats: true });
+  logger.info(`Stats ingest (check-jobs): processed ${processed}, inserted ${newJobs}, skipped ${skippedKnown}`);
+  return { processed, newJobs, skippedKnown };
+}
+
 /** Ingest all of a user's active feeds (dashboard-managed). */
 export async function ingestUserFeeds(userId: string): Promise<StatsIngestResult> {
   const feeds = await prisma.feed.findMany({

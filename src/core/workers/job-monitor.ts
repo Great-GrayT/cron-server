@@ -31,7 +31,7 @@ export interface JobMonitorConfig {
 import { LocationExtractor } from "@/analysis/FUNC-location-extractor";
 import { getCountryFromUrlTLD, resolvePostedDate } from "@/analysis/FUNC-company-location-lookup";
 import { matchesAnyFilterSet, type FilterSetData } from "@/core/FUNC-filter-eval";
-import { analyzeRssJob } from "@/core/workers/stats-ingest";
+import { analyzeRssJob, ingestParsedJobs } from "@/core/workers/stats-ingest";
 
 /**
  * JFS: true if the job matches any of the user's enabled filter sets. The job is
@@ -205,6 +205,15 @@ export async function checkAndSendJobs(config: JobMonitorConfig): Promise<CronJo
     logger.info(
       `Fetched ${allJobs.length} total jobs from ${config.feedUrls.length} feeds`,
     );
+
+    // Persist every parsed job to the public stats DB (deduped by url), independent
+    // of the Telegram recency/cache filters below. This is what keeps the stats
+    // page in sync with the monitored feeds. Non-fatal: never block notifications.
+    try {
+      await ingestParsedJobs(allJobs);
+    } catch (e) {
+      logger.warn("stats ingest during check-jobs failed (non-fatal)", e);
+    }
 
     // Extract all publication dates from found jobs
     const pubDates = allJobs.map((job) => job.pubDate);
