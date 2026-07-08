@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkAndSendJobs, defaultMainConfig } from "@/core/workers/job-monitor";
 import { validateEnvironmentVariables, verifyCronRequest } from "@/lib/validation";
-import { refreshRecent } from "@/db/FUNC-stats-rollup";
 import { hoursMatch } from "@/lib/FUNC-cron";
 import { logger } from "@/lib/logger";
 
@@ -43,14 +42,10 @@ export async function GET(request: NextRequest) {
     validateEnvironmentVariables();
     logger.info("Cron job started");
 
+    // The ingest inside checkAndSendJobs refreshes the rollups for exactly the
+    // days it touched, so the stats page updates automatically — no separate
+    // rollup pass needed here.
     const result = await checkAndSendJobs(defaultMainConfig());
-
-    // Incrementally refresh the public stats rollups for the days just ingested.
-    try {
-      await refreshRecent();
-    } catch (e) {
-      logger.warn("stats rollup refresh failed (non-fatal)", e);
-    }
 
     logger.info("Cron job completed successfully", result);
     return NextResponse.json({ success: true, timestamp: new Date().toISOString(), ...result });

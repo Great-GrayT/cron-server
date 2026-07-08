@@ -24,9 +24,10 @@ const MIN_POSTED_DATE = new Date(Date.UTC(2026, 0, 1)); // 2026-01-01T00:00:00Z
 
 /**
  * postedDate sanitiser: invalid, before 2026-01-01, or in the future all fall
- * back to "now" so a job always lands in a sane, current window.
+ * back to "now" so a job always lands in a sane, current window. Exported so the
+ * ingest can compute the *stored* day (to refresh exactly the right rollups).
  */
-function safePostedDate(value: string | Date | undefined): Date {
+export function safePostedDate(value: string | Date | undefined): Date {
   const now = new Date();
   if (!value) return now;
   const d = new Date(value);

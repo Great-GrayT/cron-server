@@ -203,6 +203,20 @@ export async function clampPostedDates(): Promise<number> {
   return n;
 }
 
+/**
+ * Refresh the rollups for a specific set of YYYY-MM-DD days and mark the rollup
+ * ready. Called by the ingest after inserting new jobs so the stats page updates
+ * automatically on every cron run — only the days actually touched are recomputed.
+ */
+export async function refreshDaysFor(days: string[]): Promise<void> {
+  const unique = [...new Set(days.filter(Boolean))];
+  if (unique.length === 0) return;
+  await refreshDays(unique);
+  await prisma.$executeRaw`INSERT INTO stats_meta (key,val) VALUES ('ready','1')
+    ON CONFLICT (key) DO UPDATE SET val = '1'`;
+  invalidateReady();
+}
+
 /** Full set-based rebuild over every day present — run once after a bulk import. */
 export async function rebuildAll(): Promise<void> {
   await ensureRollupTables();

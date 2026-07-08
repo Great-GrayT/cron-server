@@ -6,12 +6,30 @@ import { extractJobDetails, analyzeJobDescription } from "@/analysis/FUNC-job-an
 import { RoleTypeExtractor } from "@/analysis/FUNC-role-type-extractor";
 import { softwareKeywords } from "@/analysis/dictionaries/software";
 import { programmingKeywords } from "@/analysis/dictionaries/programming-languages";
-import { findExistingUrls, insertJobs, getSystemUserId, type JobOwner } from "@/db/FUNC-jobs-repo";
+import { findExistingUrls, insertJobs, getSystemUserId, safePostedDate, type JobOwner } from "@/db/FUNC-jobs-repo";
+import { refreshDaysFor } from "@/db/FUNC-stats-rollup";
 import { prisma } from "@/db/client";
 import { RSS_STATS_FEED_URLS } from "@/config/constants";
 import { logger } from "@/lib/logger";
 import type { JobItem } from "@/types/job";
 import type { JobRegion, JobStatistic } from "@/types/stats";
+
+/** The UTC day (YYYY-MM-DD) a job's posted_date will be *stored* under. */
+const storedDay = (postedDate: string | Date | undefined) =>
+  safePostedDate(postedDate).toISOString().slice(0, 10);
+
+/**
+ * Rebuild the rollups for the days a freshly-inserted batch touches, so the stats
+ * page reflects new jobs automatically after every ingest. Non-fatal.
+ */
+async function refreshRollupsForBatch(jobs: JobStatistic[]): Promise<void> {
+  if (jobs.length === 0) return;
+  try {
+    await refreshDaysFor(jobs.map((j) => storedDay(j.postedDate)));
+  } catch (e) {
+    logger.warn("rollup refresh after ingest failed (non-fatal)", e);
+  }
+}
 
 export interface StatsIngestResult {
   processed: number;
@@ -160,9 +178,13 @@ export async function ingestFeeds(userId: string, feeds: FeedDef[]): Promise<Sta
   }
 
   let newJobs = 0;
+  const inserted: JobStatistic[] = [];
   for (const { owner, jobs } of buckets.values()) {
-    newJobs += await insertJobs(jobs, owner);
+    const n = await insertJobs(jobs, owner);
+    newJobs += n;
+    if (n > 0 && owner.shareToStats) inserted.push(...jobs); // public rollups only
   }
+  if (inserted.length > 0) await refreshRollupsForBatch(inserted);
 
   logger.info(`Ingest [user ${userId}]: processed ${processed}, inserted ${newJobs}, skipped ${skippedKnown}`);
   return { processed, newJobs, skippedKnown };
@@ -196,6 +218,7 @@ export async function ingestParsedJobs(items: JobItem[]): Promise<StatsIngestRes
   }
 
   const newJobs = await insertJobs(stats, { userId, feedId: null, shareToStats: true });
+  if (newJobs > 0) await refreshRollupsForBatch(stats);
   logger.info(`Stats ingest (check-jobs): processed ${processed}, inserted ${newJobs}, skipped ${skippedKnown}`);
   return { processed, newJobs, skippedKnown };
 }
