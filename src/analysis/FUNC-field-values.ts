@@ -58,7 +58,7 @@ const VALUE_SOURCES: Record<string, () => string[]> = {
   keyword: () => Object.keys(expertiseKeywords),
   software: () => Object.keys(softwareKeywords),
   programming: () => Object.keys(programmingKeywords),
-  country: () => Array.from(COUNTRY_BY_CANONICAL.keys()),
+  country: () => Array.from(COUNTRY_BY_CANONICAL.values()).map((c) => c.canonical),
 };
 
 export function fieldHasDictionary(field: string): boolean {
