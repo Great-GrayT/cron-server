@@ -1,5 +1,6 @@
 import { JobItem } from "@/types/job";
 import { extractJobDetails, analyzeJobDescription } from "@/analysis/FUNC-job-analyzer";
+import { getCompanyFromUrl } from "@/analysis/FUNC-company-location-lookup";
 import { createTrackingUrl } from "@/lib/FUNC-tracking-url";
 import type { AppliedNamespace } from "@/types/applied-job";
 import { JobMetadataExtractor } from "@/analysis/FUNC-job-metadata-extractor";
@@ -74,10 +75,19 @@ export function formatJobMessage(
   const postDate = new Date(job.pubDate);
   const timeAgo = getTimeAgo(postDate);
 
+  // Resolve the company once: title-parsed → feed-provided → KNOWN_COMPANIES matched
+  // on URL/title → N/A. Previously the raw `details.company` (often "N/A") was shown
+  // directly and the URL lookup was never consulted.
+  const resolvedCompany =
+    (details.company !== 'N/A' && details.company) ||
+    (job.company && job.company.trim()) ||
+    getCompanyFromUrl(job.link, job.title) ||
+    'N/A';
+
   // Comprehensive metadata extraction (same modules as stats project)
   const metadata = JobMetadataExtractor.extractAllMetadata({
     title: details.position,
-    company: details.company !== 'N/A' ? details.company : (job.company || ''),
+    company: resolvedCompany !== 'N/A' ? resolvedCompany : '',
     description: job.description,
     url: job.link,
   });
@@ -137,7 +147,7 @@ export function formatJobMessage(
     "",
     `📋 Position: ${details.position}`,
     "",
-    `🏢 Company: ${details.company}`,
+    `🏢 Company: ${resolvedCompany}`,
   ];
 
   if (metadata.industry && metadata.industry !== 'Other') {
@@ -199,7 +209,7 @@ export function formatJobMessage(
     {
       jobUrl,
       title: details.position,
-      company: details.company,
+      company: resolvedCompany,
       location: locationDisplay,
       postedDate: job.pubDate,
       roleType: roleTypeMatch?.roleType ?? undefined,

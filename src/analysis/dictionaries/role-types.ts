@@ -39,6 +39,16 @@ export const ROLE_CATEGORIES = [
   "Research & Science",
   "Engineering",
   "Healthcare & Life Sciences",
+  "Skilled Trades",
+  "Manufacturing & Production",
+  "Transportation & Logistics",
+  "Construction & Property",
+  "Hospitality & Food Service",
+  "Retail & Customer Service",
+  "Agriculture & Environment",
+  "Education & Training",
+  "Care & Social Services",
+  "Legal",
   "Other Professional",
 ] as const;
 
@@ -1462,6 +1472,107 @@ export const roleTypes: RoleTypeDefinition[] = [
       /mechatronics/i,
     ],
   },
+  {
+    roleType: "Biomedical Engineering",
+    category: "Engineering",
+    keywords: [
+      "biomedical engineer",
+      "clinical engineer",
+      "bioengineer",
+      "medical device engineer",
+      "biomechanical engineer",
+    ],
+    titlePatterns: [
+      /biomedical\s*engineer/i,
+      /clinical\s*engineer/i,
+      /bioengineer/i,
+      /medical\s*device\s*engineer/i,
+    ],
+  },
+  {
+    roleType: "Chemical Engineering",
+    category: "Engineering",
+    keywords: [
+      "chemical engineer",
+      "process chemical engineer",
+      "petrochemical engineer",
+      "polymer engineer",
+    ],
+    titlePatterns: [/chemical\s*engineer/i, /petrochemical\s*engineer/i, /polymer\s*engineer/i],
+  },
+  {
+    roleType: "Environmental Engineering",
+    category: "Engineering",
+    keywords: [
+      "environmental engineer",
+      "water engineer",
+      "wastewater engineer",
+      "sustainability engineer",
+      "waste engineer",
+    ],
+    titlePatterns: [/environmental\s*engineer/i, /water\s*engineer/i, /wastewater\s*engineer/i],
+  },
+  {
+    roleType: "Materials Engineering",
+    category: "Engineering",
+    keywords: [
+      "materials engineer",
+      "metallurgist",
+      "metallurgical engineer",
+      "materials scientist",
+      "welding engineer",
+    ],
+    titlePatterns: [/materials\s*engineer/i, /metallurg(?:ist|ical)/i, /welding\s*engineer/i],
+  },
+  {
+    roleType: "Petroleum & Energy Engineering",
+    category: "Engineering",
+    keywords: [
+      "petroleum engineer",
+      "reservoir engineer",
+      "drilling engineer",
+      "energy engineer",
+      "renewable energy engineer",
+      "wind engineer",
+    ],
+    titlePatterns: [/petroleum\s*engineer/i, /reservoir\s*engineer/i, /drilling\s*engineer/i, /energy\s*engineer/i],
+  },
+  {
+    roleType: "Marine & Naval Engineering",
+    category: "Engineering",
+    keywords: [
+      "marine engineer",
+      "naval architect",
+      "naval engineer",
+      "offshore engineer",
+      "subsea engineer",
+    ],
+    titlePatterns: [/marine\s*engineer/i, /naval\s*(?:architect|engineer)/i, /offshore\s*engineer/i, /subsea\s*engineer/i],
+  },
+  {
+    roleType: "Automotive Engineering",
+    category: "Engineering",
+    keywords: [
+      "automotive engineer",
+      "vehicle engineer",
+      "powertrain engineer",
+      "calibration engineer",
+      "motorsport engineer",
+    ],
+    titlePatterns: [/automotive\s*engineer/i, /vehicle\s*engineer/i, /powertrain\s*engineer/i, /motorsport\s*engineer/i],
+  },
+  {
+    roleType: "Systems Engineering",
+    category: "Engineering",
+    keywords: [
+      "systems engineer",
+      "requirements engineer",
+      "integration engineer",
+      "verification engineer",
+      "safety engineer",
+    ],
+    titlePatterns: [/systems\s*engineer/i, /requirements\s*engineer/i, /integration\s*engineer/i, /safety\s*engineer/i],
+  },
 
   // =====================================================
   // HEALTHCARE & LIFE SCIENCES
@@ -1522,8 +1633,71 @@ export const roleTypes: RoleTypeDefinition[] = [
   // Legal, HR, admin, education, creative, executive
   // =====================================================
   {
+    roleType: "Corporate & Commercial Law",
+    category: "Legal",
+    keywords: ["corporate law", "commercial law", "M&A lawyer", "corporate solicitor", "commercial solicitor"],
+    titlePatterns: [/corporate\s*(?:law|solicitor|lawyer)/i, /commercial\s*(?:law|solicitor|lawyer)/i, /m&a\s*lawyer/i],
+  },
+  {
+    roleType: "Litigation & Dispute Resolution",
+    category: "Legal",
+    keywords: ["litigation", "dispute resolution", "litigation solicitor", "commercial litigation", "arbitration"],
+    titlePatterns: [/litigation/i, /dispute\s*resolution/i, /arbitration\s*(?:lawyer|solicitor)/i],
+  },
+  {
+    roleType: "Employment Law",
+    category: "Legal",
+    keywords: ["employment law", "employment solicitor", "employment lawyer", "labour law"],
+    titlePatterns: [/employment\s*(?:law|solicitor|lawyer)/i, /labour\s*law/i],
+  },
+  {
+    roleType: "Intellectual Property Law",
+    category: "Legal",
+    keywords: ["intellectual property lawyer", "ip lawyer", "patent attorney", "trademark attorney", "ip solicitor"],
+    titlePatterns: [/(?:intellectual\s*property|ip)\s*(?:law|lawyer|solicitor|attorney)/i, /patent\s*attorney/i, /trademark\s*attorney/i],
+  },
+  {
+    roleType: "Property & Conveyancing Law",
+    category: "Legal",
+    keywords: ["conveyancer", "conveyancing solicitor", "property lawyer", "real estate lawyer", "property solicitor"],
+    titlePatterns: [/conveyanc(?:er|ing)/i, /property\s*(?:lawyer|solicitor)/i, /real\s*estate\s*lawyer/i],
+  },
+  {
+    roleType: "Criminal Law",
+    category: "Legal",
+    keywords: ["criminal lawyer", "criminal solicitor", "criminal defence", "prosecutor", "crown prosecutor"],
+    titlePatterns: [/criminal\s*(?:lawyer|solicitor|defence|defense)/i, /prosecutor/i],
+  },
+  {
+    roleType: "Family Law",
+    category: "Legal",
+    keywords: ["family lawyer", "family solicitor", "divorce lawyer", "matrimonial", "child law"],
+    titlePatterns: [/family\s*(?:law|lawyer|solicitor)/i, /divorce\s*lawyer/i, /matrimonial/i],
+  },
+  {
+    roleType: "Tax Law",
+    category: "Legal",
+    keywords: ["tax lawyer", "tax solicitor", "tax counsel", "tax law"],
+    titlePatterns: [/tax\s*(?:lawyer|solicitor|counsel|law)/i],
+  },
+  {
+    roleType: "Immigration Law",
+    category: "Legal",
+    keywords: ["immigration lawyer", "immigration solicitor", "immigration law", "asylum lawyer"],
+    titlePatterns: [/immigration\s*(?:law|lawyer|solicitor)/i, /asylum\s*lawyer/i],
+  },
+  {
+    roleType: "Banking & Finance Law",
+    category: "Legal",
+    keywords: ["banking lawyer", "finance lawyer", "financial services lawyer", "banking solicitor", "regulatory lawyer"],
+    titlePatterns: [/banking\s*(?:lawyer|solicitor)/i, /finance\s*lawyer/i, /regulatory\s*lawyer/i],
+  },
+  {
+    // Generic legal fallback — placed AFTER the practice-area specialisms so a
+    // specific area (e.g. "Employment Law Solicitor") wins the title-pattern tie
+    // and only bare "Solicitor"/"Lawyer"/"Counsel" land here.
     roleType: "Legal Counsel",
-    category: "Other Professional",
+    category: "Legal",
     keywords: [
       "attorney",
       "lawyer",
@@ -1532,12 +1706,16 @@ export const roleTypes: RoleTypeDefinition[] = [
       "corporate counsel",
       "general counsel",
       "paralegal",
+      "solicitor",
+      "barrister",
     ],
     titlePatterns: [
       /attorney/i,
       /lawyer/i,
-      /(?:legal|corporate|general)\s*counsel/i,
+      /(?:legal|corporate|general|in-house)\s*counsel/i,
       /paralegal/i,
+      /solicitor/i,
+      /barrister/i,
     ],
   },
   {
@@ -1581,7 +1759,7 @@ export const roleTypes: RoleTypeDefinition[] = [
   },
   {
     roleType: "Teaching & Education",
-    category: "Other Professional",
+    category: "Education & Training",
     keywords: [
       "teacher",
       "professor",
@@ -1647,6 +1825,346 @@ export const roleTypes: RoleTypeDefinition[] = [
       /\banimator\b/i,
       /motion\s*design/i,
     ],
+  },
+
+  // =====================================================
+  // HEALTHCARE & LIFE SCIENCES (allied / dental additions)
+  // =====================================================
+  {
+    roleType: "Allied Health",
+    category: "Healthcare & Life Sciences",
+    keywords: [
+      "physiotherapist",
+      "pharmacist",
+      "radiographer",
+      "paramedic",
+      "occupational therapist",
+      "dietitian",
+      "optometrist",
+      "sonographer",
+      "healthcare assistant",
+    ],
+    titlePatterns: [
+      /physiotherap/i,
+      /pharmacist/i,
+      /radiographer/i,
+      /paramedic/i,
+      /occupational\s*therap/i,
+      /optometrist/i,
+    ],
+  },
+  {
+    roleType: "Dental",
+    category: "Healthcare & Life Sciences",
+    keywords: [
+      "dentist",
+      "dental nurse",
+      "dental hygienist",
+      "dental therapist",
+      "orthodontist",
+    ],
+    titlePatterns: [/dentist/i, /dental\s*(?:nurse|hygienist|therapist)/i, /orthodontist/i],
+  },
+
+  // =====================================================
+  // SKILLED TRADES
+  // Electricians, plumbers, welders, mechanics, etc.
+  // =====================================================
+  {
+    roleType: "Electrician",
+    category: "Skilled Trades",
+    keywords: ["electrician", "electrical installer", "electrical fitter"],
+    titlePatterns: [/electrician/i, /electrical\s*(?:installer|fitter)/i],
+  },
+  {
+    roleType: "Plumbing & Heating",
+    category: "Skilled Trades",
+    keywords: ["plumber", "plumbing engineer", "gas engineer", "heating engineer", "gas fitter"],
+    titlePatterns: [/plumb(?:er|ing)/i, /gas\s*(?:engineer|fitter)/i, /heating\s*engineer/i],
+  },
+  {
+    roleType: "Welding & Fabrication",
+    category: "Skilled Trades",
+    keywords: ["welder", "welding", "fabricator", "sheet metal worker"],
+    titlePatterns: [/welder/i, /\bwelding\b/i, /fabricator/i],
+  },
+  {
+    roleType: "Carpentry & Joinery",
+    category: "Skilled Trades",
+    keywords: ["carpenter", "joiner", "cabinet maker", "shopfitter"],
+    titlePatterns: [/carpenter/i, /joiner/i, /cabinet\s*maker/i, /shopfitter/i],
+  },
+  {
+    roleType: "HVAC & Refrigeration",
+    category: "Skilled Trades",
+    keywords: ["hvac technician", "refrigeration engineer", "air conditioning engineer", "hvac engineer"],
+    titlePatterns: [/hvac/i, /refrigeration\s*engineer/i, /air\s*conditioning\s*engineer/i],
+  },
+  {
+    roleType: "Vehicle Mechanic",
+    category: "Skilled Trades",
+    keywords: ["mechanic", "vehicle technician", "auto technician", "motor mechanic", "hgv technician"],
+    titlePatterns: [/mechanic/i, /vehicle\s*technician/i, /motor\s*technician/i],
+  },
+  {
+    roleType: "Painting & Decorating",
+    category: "Skilled Trades",
+    keywords: ["painter", "decorator", "painter and decorator"],
+    titlePatterns: [/painter/i, /decorator/i],
+  },
+  {
+    roleType: "Bricklaying & Plastering",
+    category: "Skilled Trades",
+    keywords: ["bricklayer", "mason", "plasterer", "stonemason", "tiler"],
+    titlePatterns: [/bricklayer/i, /plasterer/i, /stonemason/i, /\btiler\b/i],
+  },
+
+  // =====================================================
+  // MANUFACTURING & PRODUCTION
+  // =====================================================
+  {
+    roleType: "Production Operative",
+    category: "Manufacturing & Production",
+    keywords: ["production operative", "factory worker", "assembly operative", "line operative", "assembler", "packer"],
+    titlePatterns: [/production\s*operative/i, /factory\s*worker/i, /assembly\s*operative/i, /line\s*operative/i],
+  },
+  {
+    roleType: "Machine Operator",
+    category: "Manufacturing & Production",
+    keywords: ["machine operator", "cnc operator", "cnc machinist", "machinist", "press operator", "lathe operator"],
+    titlePatterns: [/machine\s*operator/i, /\bcnc\b/i, /machinist/i, /press\s*operator/i],
+  },
+  {
+    roleType: "Quality Control Inspector",
+    category: "Manufacturing & Production",
+    keywords: ["quality inspector", "quality control", "qc inspector", "quality technician", "quality engineer"],
+    titlePatterns: [/quality\s*(?:inspector|control|technician)/i, /\bqc\s*(?:inspector|technician)/i],
+  },
+  {
+    roleType: "Maintenance Technician",
+    category: "Manufacturing & Production",
+    keywords: ["maintenance technician", "maintenance engineer", "plant technician", "field service engineer", "service technician"],
+    titlePatterns: [/maintenance\s*(?:technician|engineer|fitter)/i, /field\s*service\s*engineer/i, /service\s*technician/i],
+  },
+  {
+    roleType: "Production Management",
+    category: "Manufacturing & Production",
+    keywords: ["production manager", "plant manager", "manufacturing manager", "shift manager", "production supervisor"],
+    titlePatterns: [/production\s*(?:manager|supervisor)/i, /plant\s*manager/i, /manufacturing\s*manager/i, /shift\s*manager/i],
+  },
+  {
+    roleType: "Process & Manufacturing Engineering",
+    category: "Manufacturing & Production",
+    keywords: ["process engineer", "manufacturing engineer", "industrial engineer", "production engineer", "chemical engineer"],
+    titlePatterns: [/process\s*engineer/i, /manufacturing\s*engineer/i, /industrial\s*engineer/i, /production\s*engineer/i, /chemical\s*engineer/i],
+  },
+
+  // =====================================================
+  // TRANSPORTATION & LOGISTICS
+  // =====================================================
+  {
+    roleType: "Driver",
+    category: "Transportation & Logistics",
+    keywords: ["hgv driver", "lgv driver", "delivery driver", "truck driver", "van driver", "bus driver", "coach driver", "class 1 driver", "class 2 driver"],
+    titlePatterns: [/\b(?:hgv|lgv|delivery|truck|van|bus|coach|taxi)\s*driver/i, /class\s*[12]\s*driver/i, /\bdriver\b/i],
+  },
+  {
+    roleType: "Warehouse Operative",
+    category: "Transportation & Logistics",
+    keywords: ["warehouse operative", "warehouse worker", "warehouse assistant", "picker packer", "forklift driver", "fulfilment associate", "flt driver"],
+    titlePatterns: [/warehouse\s*(?:operative|worker|assistant|associate)/i, /forklift/i, /\bflt\s*driver/i, /picker/i],
+  },
+  {
+    roleType: "Pilot & Flight Crew",
+    category: "Transportation & Logistics",
+    keywords: ["pilot", "first officer", "airline pilot", "captain aviation"],
+    titlePatterns: [/\bpilot\b/i, /first\s*officer/i],
+  },
+  {
+    roleType: "Cabin Crew",
+    category: "Transportation & Logistics",
+    keywords: ["cabin crew", "flight attendant", "air steward", "air hostess"],
+    titlePatterns: [/cabin\s*crew/i, /flight\s*attendant/i, /air\s*steward/i],
+  },
+  {
+    roleType: "Logistics Coordination",
+    category: "Transportation & Logistics",
+    keywords: ["logistics coordinator", "transport planner", "dispatcher", "fleet manager", "shipping coordinator", "transport manager", "logistics manager"],
+    titlePatterns: [/logistics\s*(?:coordinator|manager|administrator)/i, /transport\s*(?:planner|manager)/i, /dispatcher/i, /fleet\s*manager/i],
+  },
+  {
+    roleType: "Marine & Seafaring",
+    category: "Transportation & Logistics",
+    keywords: ["seafarer", "deck officer", "marine crew", "ship captain", "able seaman", "chief engineer marine"],
+    titlePatterns: [/seafarer/i, /deck\s*officer/i, /able\s*seaman/i],
+  },
+
+  // =====================================================
+  // CONSTRUCTION & PROPERTY
+  // =====================================================
+  {
+    roleType: "Site Management",
+    category: "Construction & Property",
+    keywords: ["site manager", "construction manager", "site foreman", "foreman", "site supervisor", "project manager construction"],
+    titlePatterns: [/site\s*(?:manager|foreman|supervisor)/i, /construction\s*manager/i, /\bforeman\b/i],
+  },
+  {
+    roleType: "Quantity Surveying",
+    category: "Construction & Property",
+    keywords: ["quantity surveyor", "cost consultant", "estimator", "commercial manager construction"],
+    titlePatterns: [/quantity\s*surveyor/i, /\bqs\b/i, /estimator/i],
+  },
+  {
+    roleType: "Surveying",
+    category: "Construction & Property",
+    keywords: ["building surveyor", "chartered surveyor", "land surveyor", "surveyor"],
+    titlePatterns: [/building\s*surveyor/i, /chartered\s*surveyor/i, /land\s*surveyor/i, /\bsurveyor\b/i],
+  },
+  {
+    roleType: "Architecture",
+    category: "Construction & Property",
+    keywords: ["architect", "architectural technician", "architectural technologist", "architectural assistant"],
+    titlePatterns: [/\barchitect\b/i, /architectural/i],
+  },
+  {
+    roleType: "Property Management",
+    category: "Construction & Property",
+    keywords: ["property manager", "facilities manager", "estate manager", "lettings manager", "estate agent", "block manager"],
+    titlePatterns: [/property\s*manager/i, /facilities\s*manager/i, /estate\s*(?:manager|agent)/i, /lettings/i],
+  },
+  {
+    roleType: "Construction Trades & Labour",
+    category: "Construction & Property",
+    keywords: ["labourer", "groundworker", "general operative", "scaffolder", "steel fixer", "roofer"],
+    titlePatterns: [/labourer/i, /groundworker/i, /scaffolder/i, /steel\s*fixer/i, /roofer/i],
+  },
+
+  // =====================================================
+  // HOSPITALITY & FOOD SERVICE
+  // =====================================================
+  {
+    roleType: "Chef & Kitchen",
+    category: "Hospitality & Food Service",
+    keywords: ["chef", "head chef", "sous chef", "chef de partie", "commis chef", "cook", "kitchen manager"],
+    titlePatterns: [/\bchef\b/i, /\bcook\b/i, /kitchen\s*manager/i],
+  },
+  {
+    roleType: "Waiting & Front of House",
+    category: "Hospitality & Food Service",
+    keywords: ["waiter", "waitress", "server", "front of house", "host", "waiting staff"],
+    titlePatterns: [/wait(?:er|ress|ing)/i, /front\s*of\s*house/i, /\bserver\b/i],
+  },
+  {
+    roleType: "Bar & Beverage",
+    category: "Hospitality & Food Service",
+    keywords: ["bartender", "barista", "mixologist", "bar staff", "bar manager"],
+    titlePatterns: [/bartender/i, /barista/i, /mixologist/i, /bar\s*(?:staff|manager)/i],
+  },
+  {
+    roleType: "Hospitality Management",
+    category: "Hospitality & Food Service",
+    keywords: ["hotel manager", "hospitality manager", "duty manager", "restaurant manager", "general manager hotel", "events manager"],
+    titlePatterns: [/hotel\s*manager/i, /hospitality\s*manager/i, /restaurant\s*manager/i, /duty\s*manager/i],
+  },
+  {
+    roleType: "Housekeeping & Cleaning",
+    category: "Hospitality & Food Service",
+    keywords: ["housekeeper", "housekeeping", "room attendant", "cleaner", "cleaning operative", "kitchen porter"],
+    titlePatterns: [/housekeep/i, /room\s*attendant/i, /\bcleaner\b/i, /kitchen\s*porter/i],
+  },
+
+  // =====================================================
+  // RETAIL & CUSTOMER SERVICE
+  // =====================================================
+  {
+    roleType: "Store Management",
+    category: "Retail & Customer Service",
+    keywords: ["store manager", "retail manager", "branch manager", "shop manager", "assistant store manager", "department manager"],
+    titlePatterns: [/store\s*manager/i, /retail\s*manager/i, /branch\s*manager/i, /shop\s*manager/i],
+  },
+  {
+    roleType: "Sales Assistant",
+    category: "Retail & Customer Service",
+    keywords: ["sales assistant", "retail assistant", "shop assistant", "cashier", "checkout operator", "customer assistant"],
+    titlePatterns: [/(?:sales|retail|shop|customer)\s*assistant/i, /cashier/i, /checkout/i],
+  },
+  {
+    roleType: "Merchandising & Buying",
+    category: "Retail & Customer Service",
+    keywords: ["merchandiser", "visual merchandiser", "retail buyer", "category manager", "buyer"],
+    titlePatterns: [/merchandiser/i, /visual\s*merchand/i, /retail\s*buyer/i, /category\s*manager/i],
+  },
+
+  // =====================================================
+  // AGRICULTURE & ENVIRONMENT
+  // =====================================================
+  {
+    roleType: "Farm Work",
+    category: "Agriculture & Environment",
+    keywords: ["farm worker", "farmhand", "agricultural worker", "farm operative", "dairy worker", "poultry worker"],
+    titlePatterns: [/farm\s*(?:worker|hand|operative)/i, /agricultural\s*worker/i, /farmhand/i],
+  },
+  {
+    roleType: "Farm Management",
+    category: "Agriculture & Environment",
+    keywords: ["farm manager", "herd manager", "estate manager agricultural", "farm supervisor"],
+    titlePatterns: [/farm\s*(?:manager|supervisor)/i, /herd\s*manager/i],
+  },
+  {
+    roleType: "Agronomy & Advisory",
+    category: "Agriculture & Environment",
+    keywords: ["agronomist", "crop advisor", "agricultural consultant", "agricultural scientist"],
+    titlePatterns: [/agronomist/i, /crop\s*advisor/i, /agricultural\s*consultant/i],
+  },
+  {
+    roleType: "Forestry & Horticulture",
+    category: "Agriculture & Environment",
+    keywords: ["forester", "forestry worker", "arborist", "tree surgeon", "horticulturist", "gardener", "landscaper", "groundskeeper"],
+    titlePatterns: [/forester/i, /arborist/i, /tree\s*surgeon/i, /horticultur/i, /gardener/i, /landscaper/i],
+  },
+  {
+    roleType: "Veterinary",
+    category: "Agriculture & Environment",
+    keywords: ["veterinarian", "veterinary surgeon", "veterinary nurse", "vet"],
+    titlePatterns: [/veterinar/i, /\bvet\b/i],
+  },
+
+  // =====================================================
+  // EDUCATION & TRAINING
+  // =====================================================
+  {
+    roleType: "Teaching Support",
+    category: "Education & Training",
+    keywords: ["teaching assistant", "learning support", "classroom assistant", "cover supervisor", "SEN teaching assistant"],
+    titlePatterns: [/teaching\s*assistant/i, /learning\s*support/i, /classroom\s*assistant/i, /cover\s*supervisor/i],
+  },
+  {
+    roleType: "Training & Development",
+    category: "Education & Training",
+    keywords: ["trainer", "learning and development", "l&d", "training manager", "instructional designer", "assessor"],
+    titlePatterns: [/\btrainer\b/i, /learning\s*(?:and|&)\s*development/i, /\bl&d\b/i, /instructional\s*design/i, /assessor/i],
+  },
+
+  // =====================================================
+  // CARE & SOCIAL SERVICES
+  // =====================================================
+  {
+    roleType: "Care Work",
+    category: "Care & Social Services",
+    keywords: ["care worker", "care assistant", "support worker", "carer", "hca", "home carer", "residential care worker"],
+    titlePatterns: [/care\s*(?:worker|assistant)/i, /support\s*worker/i, /\bcarer\b/i, /\bhca\b/i],
+  },
+  {
+    roleType: "Social Work",
+    category: "Care & Social Services",
+    keywords: ["social worker", "social care", "family support worker", "safeguarding", "youth worker"],
+    titlePatterns: [/social\s*worker/i, /social\s*care/i, /family\s*support/i, /youth\s*worker/i],
+  },
+  {
+    roleType: "Childcare & Early Years",
+    category: "Care & Social Services",
+    keywords: ["nursery nurse", "childcare", "nanny", "early years practitioner", "nursery assistant", "childminder"],
+    titlePatterns: [/nursery\s*(?:nurse|assistant|practitioner)/i, /childcare/i, /\bnanny\b/i, /early\s*years/i],
   },
 ];
 

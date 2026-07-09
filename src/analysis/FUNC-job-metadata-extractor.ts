@@ -1,36 +1,23 @@
-import { logger } from "@/lib/logger";
 import { certificationPatterns } from './dictionaries/certifications';
 import { expertiseKeywords } from './dictionaries/expertise';
+import { industries } from './dictionaries/industries';
+
+/** Escape a keyword so it can be embedded literally in a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Word-boundary occurrence count for a keyword, capped so one word can't dominate. */
+function countMatches(text: string, keyword: string): number {
+  const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, 'g');
+  const m = text.match(re);
+  return m ? Math.min(m.length, 3) : 0;
+}
 
 /**
  * Extract metadata from job title and description using dictionary files
  */
 export class JobMetadataExtractor {
-  // Industry keywords
-  private static readonly INDUSTRIES: Record<string, string[]> = {
-    'Finance': ['finance', 'financial', 'banking', 'investment', 'trading', 'asset management', 'hedge fund', 'private equity', 'wealth management', 'CFA', 'FRM', 'treasury'],
-    'Technology': ['software', 'technology', 'IT', 'tech', 'saas', 'cloud', 'developer', 'engineer', 'programming', 'devops', 'AWS', 'Azure'],
-    'Healthcare': ['healthcare', 'medical', 'hospital', 'pharma', 'pharmaceutical', 'health', 'clinical', 'biotech', 'patient', 'nursing'],
-    'Consulting': ['consulting', 'consultant', 'advisory', 'strategy', 'management consulting', 'advisory'],
-    'Manufacturing': ['manufacturing', 'production', 'factory', 'industrial', 'supply chain', 'operations'],
-    'Retail': ['retail', 'e-commerce', 'ecommerce', 'merchandising', 'sales', 'store'],
-    'Real Estate': ['real estate', 'property', 'construction', 'architecture', 'commercial real estate'],
-    'Energy': ['energy', 'oil', 'gas', 'renewable', 'power', 'utilities'],
-    'Telecommunications': ['telecom', 'telecommunications', 'network', 'wireless'],
-    'Insurance': ['insurance', 'underwriting', 'actuarial', 'claims', 'risk management'],
-    'Education': ['education', 'university', 'school', 'teaching', 'academic', 'training'],
-    'Government': ['government', 'public sector', 'federal', 'state', 'municipal'],
-    'Nonprofit': ['nonprofit', 'non-profit', 'NGO', 'charity', 'foundation'],
-    'Media': ['media', 'entertainment', 'publishing', 'journalism', 'broadcasting'],
-    'Legal': ['legal', 'law', 'attorney', 'lawyer', 'paralegal', 'litigation'],
-    'Accounting': [
-    'accounting', 'accountant', 'accounts', 'bookkeeping', 'bookkeeper',
-    'audit', 'auditor', 'tax', 'taxation', 'VAT', 'payroll', 'HMRC',
-    'AAT', 'ACA', 'ACCA', 'CIMA', 'ICAEW', 'chartered accountant'],
-    'Marketing': ['marketing', 'digital marketing', 'SEO', 'SEM', 'brand', 'advertising'],
-    'Data Science': ['data science', 'machine learning', 'AI', 'artificial intelligence', 'data analyst', 'big data'],
-  };
-
   // Compound seniority phrases that should be matched first (order matters: more specific first)
   // These handle cases like "Senior Associate" which should be Senior, not Entry
   private static readonly COMPOUND_SENIORITY: Array<{ pattern: RegExp; level: string }> = [
@@ -76,34 +63,31 @@ export class JobMetadataExtractor {
   }
 
   /**
-   * Extract industry from job title, company, and description
+   * Extract industry (one of the 150 sub-industries in dictionaries/industries.ts)
+   * from job title, company, and description.
+   *
+   * Scoring is weighted by keyword specificity — `strong` keywords (weight 5) are
+   * discipline/sector-specific and rarely false-positive, `keywords` (weight 2) are
+   * supporting signals. This avoids the old count-only bias where broad buckets with
+   * many generic terms (e.g. the word "engineer" living under Technology) swallowed
+   * every other industry.
    */
   static extractIndustry(title: string, company: string, description: string): string {
     const text = `${title} ${company} ${description}`.toLowerCase();
-    const scores: Record<string, number> = {};
 
-    // Count keyword matches for each industry
-    for (const [industry, keywords] of Object.entries(this.INDUSTRIES)) {
+    let best = 'Other';
+    let bestScore = 0;
+    for (const def of industries) {
       let score = 0;
-      for (const keyword of keywords) {
-        const regex = new RegExp(`\\b${keyword.replace(/[+]/g, '\\+')}\\b`, 'gi');
-        const matches = text.match(regex);
-        if (matches) {
-          score += matches.length;
-        }
-      }
-      if (score > 0) {
-        scores[industry] = score;
+      for (const kw of def.strong) score += 5 * countMatches(text, kw);
+      for (const kw of def.keywords) score += 2 * countMatches(text, kw);
+      if (score > bestScore) {
+        bestScore = score;
+        best = def.industry;
       }
     }
 
-    // Return industry with highest score
-    if (Object.keys(scores).length === 0) {
-      return 'Other';
-    }
-
-    return Object.entries(scores)
-      .sort(([, a], [, b]) => b - a)[0][0];
+    return best;
   }
 
   /**

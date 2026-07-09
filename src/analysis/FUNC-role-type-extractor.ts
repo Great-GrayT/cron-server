@@ -139,66 +139,80 @@ export class RoleTypeExtractor {
    * Fallback matching for common patterns not in the dictionary
    */
   private static fallbackMatch(title: string, industry: string): RoleTypeMatch | null {
-    // Common patterns mapped to new functional categories
+    // Generic title-word fallbacks. Order matters — more specific/occupational
+    // words first, ambiguous ones (engineer/analyst/manager) last so they don't
+    // shadow a clearer signal. Deliberately NOT finance/tech-defaulted: a bare
+    // "Engineer" is generic Engineering, not Software Engineering.
     const patterns: Array<{ pattern: RegExp; roleType: string; category: string }> = [
-      { pattern: /\bengineer\b/i, roleType: 'Software Engineering', category: 'Software Engineering' },
-      { pattern: /\bdeveloper\b/i, roleType: 'Software Engineering', category: 'Software Engineering' },
+      // Occupational — unambiguous, route to their own sector
+      { pattern: /\b(?:hgv|lgv|van|truck|bus|delivery)\s*driver\b|\bdriver\b/i, roleType: 'Driver', category: 'Transportation & Logistics' },
+      { pattern: /\bwarehouse\b|\bforklift\b|\bpicker\b/i, roleType: 'Warehouse Operative', category: 'Transportation & Logistics' },
+      { pattern: /\bchef\b|\bcook\b/i, roleType: 'Chef & Kitchen', category: 'Hospitality & Food Service' },
+      { pattern: /\bcleaner\b|\bhousekeep/i, roleType: 'Housekeeping & Cleaning', category: 'Hospitality & Food Service' },
+      { pattern: /\belectrician\b/i, roleType: 'Electrician', category: 'Skilled Trades' },
+      { pattern: /\bplumb(?:er|ing)\b/i, roleType: 'Plumbing & Heating', category: 'Skilled Trades' },
+      { pattern: /\bwelder\b|\bfabricator\b/i, roleType: 'Welding & Fabrication', category: 'Skilled Trades' },
+      { pattern: /\bmechanic\b/i, roleType: 'Vehicle Mechanic', category: 'Skilled Trades' },
+      { pattern: /\blabourer\b|\bgroundworker\b/i, roleType: 'Construction Trades & Labour', category: 'Construction & Property' },
+      { pattern: /\boperative\b|\bmachinist\b|\bcnc\b/i, roleType: 'Production Operative', category: 'Manufacturing & Production' },
+      { pattern: /\btechnician\b/i, roleType: 'Maintenance Technician', category: 'Manufacturing & Production' },
+      { pattern: /\bsurveyor\b/i, roleType: 'Surveying', category: 'Construction & Property' },
+      { pattern: /\bfarm(?:er|hand)?\b|\bagricultural\b/i, roleType: 'Farm Work', category: 'Agriculture & Environment' },
+      { pattern: /\bcarer\b|care\s*(?:worker|assistant)|support\s*worker/i, roleType: 'Care Work', category: 'Care & Social Services' },
+      { pattern: /\bnurse\b/i, roleType: 'Nursing', category: 'Healthcare & Life Sciences' },
+      { pattern: /\bteacher\b|\btutor\b/i, roleType: 'Teaching & Education', category: 'Education & Training' },
+      { pattern: /\blawyer\b|\battorney\b|\bsolicitor\b/i, roleType: 'Legal Counsel', category: 'Other Professional' },
+      { pattern: /\baccountant\b/i, roleType: 'Accounting', category: 'Corporate Finance & Accounting' },
+      { pattern: /\bHR\b|\bhuman resources\b|\brecruiter\b/i, roleType: 'Human Resources', category: 'Other Professional' },
+      { pattern: /\bwriter\b/i, roleType: 'Content Marketing', category: 'Marketing & Communications' },
+      { pattern: /\beditor\b/i, roleType: 'Creative & Media', category: 'Other Professional' },
+      { pattern: /\bdeveloper\b|\bprogrammer\b/i, roleType: 'Software Engineering', category: 'Software Engineering' },
+      { pattern: /\bscientist\b|\bresearch/i, roleType: 'Scientific Research', category: 'Research & Science' },
+      { pattern: /\bdesigner\b/i, roleType: 'Product Design', category: 'Product & Design' },
+      { pattern: /\bsales\b/i, roleType: 'Sales Representative', category: 'Sales & Business Development' },
+      { pattern: /\bmarketing\b/i, roleType: 'Digital Marketing', category: 'Marketing & Communications' },
+      { pattern: /\bconsultant\b/i, roleType: 'Management Consulting', category: 'Consulting & Advisory' },
+      // Ambiguous — routed by industry below, otherwise sector-neutral defaults
+      { pattern: /\bengineer\b/i, roleType: 'Process & Manufacturing Engineering', category: 'Manufacturing & Production' },
       { pattern: /\banalyst\b/i, roleType: 'Data Analysis', category: 'Data & Analytics' },
       { pattern: /\bmanager\b/i, roleType: 'Operations Management', category: 'Operations & Project Management' },
       { pattern: /\bdirector\b/i, roleType: 'Executive Leadership', category: 'Other Professional' },
-      { pattern: /\bconsultant\b/i, roleType: 'Management Consulting', category: 'Consulting & Advisory' },
-      { pattern: /\bdesigner\b/i, roleType: 'Product Design', category: 'Product & Design' },
-      { pattern: /\bresearch/i, roleType: 'Scientific Research', category: 'Research & Science' },
-      { pattern: /\bscientist\b/i, roleType: 'Scientific Research', category: 'Research & Science' },
-      { pattern: /\bsales\b/i, roleType: 'Sales Representative', category: 'Sales & Business Development' },
-      { pattern: /\bmarketing\b/i, roleType: 'Digital Marketing', category: 'Marketing & Communications' },
-      { pattern: /\bfinance\b/i, roleType: 'Financial Analysis', category: 'Corporate Finance & Accounting' },
-      { pattern: /\baccountant\b/i, roleType: 'Accounting', category: 'Corporate Finance & Accounting' },
-      { pattern: /\bnurse\b/i, roleType: 'Nursing', category: 'Healthcare & Life Sciences' },
-      { pattern: /\bteacher\b/i, roleType: 'Teaching & Education', category: 'Other Professional' },
-      { pattern: /\blawyer\b|\battorney\b/i, roleType: 'Legal Counsel', category: 'Other Professional' },
-      { pattern: /\bHR\b|\bhuman resources\b/i, roleType: 'Human Resources', category: 'Other Professional' },
-      { pattern: /\brecruiter\b/i, roleType: 'Human Resources', category: 'Other Professional' },
-      { pattern: /\bwriter\b/i, roleType: 'Content Marketing', category: 'Marketing & Communications' },
-      { pattern: /\beditor\b/i, roleType: 'Creative & Media', category: 'Other Professional' },
       { pattern: /\bsupport\b/i, roleType: 'Customer Service', category: 'Other Professional' },
     ];
 
-    // Adjust based on industry context
     for (const { pattern, roleType, category } of patterns) {
       if (pattern.test(title)) {
         let adjustedRoleType = roleType;
         let adjustedCategory = category;
 
+        // Only the genuinely ambiguous words (engineer/analyst/research) get
+        // re-routed by the job's industry, so context resolves them instead of a
+        // hard-coded finance/tech default.
         if (industry) {
-          // Finance context
-          if (industry.includes('finance') || industry.includes('banking') || industry.includes('investment')) {
-            if (/analyst/i.test(title)) {
-              adjustedRoleType = 'Financial Analysis';
-              adjustedCategory = 'Corporate Finance & Accounting';
-            }
-            if (/engineer/i.test(title)) {
-              adjustedRoleType = 'Quantitative Research';
-              adjustedCategory = 'Quantitative Finance';
-            }
+          const isSoftwareIndustry =
+            industry.includes('software') || industry.includes('cloud') ||
+            industry.includes('cyber') || industry.includes('data') ||
+            industry.includes('it ') || industry.includes('semiconductor');
+          const isFinanceIndustry =
+            industry.includes('bank') || industry.includes('invest') ||
+            industry.includes('capital') || industry.includes('asset') ||
+            industry.includes('insurance') || industry.includes('fintech') ||
+            industry.includes('lending');
+          const isHealthIndustry =
+            industry.includes('hospital') || industry.includes('medical') ||
+            industry.includes('health') || industry.includes('clinical') ||
+            industry.includes('biotech') || industry.includes('pharma');
+
+          if (/\bengineer\b/i.test(title)) {
+            if (isSoftwareIndustry) { adjustedRoleType = 'Software Engineering'; adjustedCategory = 'Software Engineering'; }
+            else if (isFinanceIndustry) { adjustedRoleType = 'Financial Engineering'; adjustedCategory = 'Quantitative Finance'; }
           }
-          // Technology context
-          if (industry.includes('technology') || industry.includes('software') || industry.includes('tech')) {
-            if (/analyst/i.test(title)) {
-              adjustedRoleType = 'Data Analysis';
-              adjustedCategory = 'Data & Analytics';
-            }
+          if (/\banalyst\b/i.test(title)) {
+            if (isFinanceIndustry) { adjustedRoleType = 'Financial Analysis'; adjustedCategory = 'Corporate Finance & Accounting'; }
+            else if (isHealthIndustry) { adjustedRoleType = 'Clinical Research'; adjustedCategory = 'Healthcare & Life Sciences'; }
           }
-          // Healthcare context
-          if (industry.includes('healthcare') || industry.includes('medical') || industry.includes('health')) {
-            if (/analyst/i.test(title)) {
-              adjustedRoleType = 'Clinical Research';
-              adjustedCategory = 'Healthcare & Life Sciences';
-            }
-            if (/research/i.test(title)) {
-              adjustedRoleType = 'Clinical Research';
-              adjustedCategory = 'Healthcare & Life Sciences';
-            }
+          if (/\bresearch/i.test(title) && isHealthIndustry) {
+            adjustedRoleType = 'Clinical Research'; adjustedCategory = 'Healthcare & Life Sciences';
           }
         }
 

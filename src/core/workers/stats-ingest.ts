@@ -3,6 +3,7 @@ import { JobMetadataExtractor } from "@/analysis/FUNC-job-metadata-extractor";
 import { SalaryExtractor } from "@/analysis/FUNC-salary-extractor";
 import { LocationExtractor } from "@/analysis/FUNC-location-extractor";
 import { extractJobDetails, analyzeJobDescription } from "@/analysis/FUNC-job-analyzer";
+import { getCompanyFromUrl } from "@/analysis/FUNC-company-location-lookup";
 import { RoleTypeExtractor } from "@/analysis/FUNC-role-type-extractor";
 import { softwareKeywords } from "@/analysis/dictionaries/software";
 import { programmingKeywords } from "@/analysis/dictionaries/programming-languages";
@@ -51,8 +52,14 @@ export interface FeedDef {
 export function analyzeRssJob(rssJob: JobItem): JobStatistic | null {
   try {
     const jobDetails = extractJobDetails(rssJob.title);
+    // Priority: name parsed from the title → feed-provided company → KNOWN_COMPANIES
+    // matched against the URL/title → placeholder. The URL lookup is the fill stage
+    // that was previously defined but never called.
     const finalCompany =
-      jobDetails.company !== "N/A" ? jobDetails.company : rssJob.company || "Unknown Company";
+      (jobDetails.company !== "N/A" && jobDetails.company) ||
+      (rssJob.company && rssJob.company.trim()) ||
+      getCompanyFromUrl(rssJob.link, rssJob.title) ||
+      "Unknown Company";
     const finalPosition = jobDetails.position;
     const extractedLocation = jobDetails.location !== "N/A" ? jobDetails.location : null;
 
