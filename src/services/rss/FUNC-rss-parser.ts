@@ -1,5 +1,6 @@
 import { JobItem } from "@/types/job";
 import { assertUrlIsSafe } from "@/lib/ssrf-guard";
+import { normalizeIndeedUrl } from "@/lib/FUNC-indeed-url";
 import { logger } from "@/lib/logger";
 
 // XXE guard: a feed must never carry DOCTYPE/ENTITY declarations. The regex
@@ -186,7 +187,9 @@ function extractJobsFromXML(xmlText: string): JobItem[] {
     const description = extractXMLTag(itemXml, 'description');
 
     if (title && link && pubDate) {
-      const cleanLink = link.trim();
+      // Normalize Indeed links here — the single choke point before dedup and
+      // DB save — so stored URLs (and the dedup key) are already canonical.
+      const cleanLink = normalizeIndeedUrl(link.trim());
 
       // Extract company and location from link
       const company = extractCompanyFromLink(cleanLink);

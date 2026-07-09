@@ -1,6 +1,7 @@
 import { JobItem } from "@/types/job";
 import { extractJobDetails, analyzeJobDescription } from "@/analysis/FUNC-job-analyzer";
 import { getCompanyFromUrl } from "@/analysis/FUNC-company-location-lookup";
+import { normalizeIndeedUrl } from "@/lib/FUNC-indeed-url";
 import { createTrackingUrl } from "@/lib/FUNC-tracking-url";
 import type { AppliedNamespace } from "@/types/applied-job";
 import { JobMetadataExtractor } from "@/analysis/FUNC-job-metadata-extractor";
@@ -194,15 +195,10 @@ export function formatJobMessage(
     sections.push(`🖥️ Software: ${software.slice(0, 5).join(', ')}`);
   }
 
-  // For Indeed jobs, rewrite the tracking param so the direct link works
-  let jobUrl = job.link.toLowerCase().includes('indeed')
-    ? job.link.replace('from=social_other', 'from=jobsearch-empty-whatwhere')
-    : job.link;
-
-  // Strip HTML-encoded ampersands from Indeed URLs
-  if (jobUrl.toLowerCase().includes('indeed')) {
-    jobUrl = jobUrl.replace(/amp;/g, '');
-  }
+  // Canonicalize Indeed links so the direct "apply" link resolves. Idempotent —
+  // links arriving via the RSS parser are already normalized; this covers any
+  // other call path.
+  const jobUrl = normalizeIndeedUrl(job.link);
 
   // Generate tracking URL with job metadata (namespaced per pipeline)
   const trackingUrl = createTrackingUrl(
