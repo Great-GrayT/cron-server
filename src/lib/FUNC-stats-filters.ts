@@ -12,6 +12,22 @@ import { z } from "zod";
 
 const csv = (v: string) => v.split(",").map((s) => s.trim()).filter(Boolean);
 
+// Split a search string on a single boolean operator: "a OR b", "a AND b".
+// Case-insensitive, word-boundaried. Falls back to a single term (OR of one).
+function splitQuery(q: string): { terms: string[]; op: "AND" | "OR" } {
+  if (/\bAND\b/i.test(q) && !/\bOR\b/i.test(q)) {
+    return { terms: q.split(/\s+AND\s+/i).map((t) => t.trim()).filter(Boolean), op: "AND" };
+  }
+  return { terms: q.split(/\s+OR\s+/i).map((t) => t.trim()).filter(Boolean), op: "OR" };
+}
+
+// SQL column per searchable field (fixed allowlist — safe as a raw identifier).
+const SQL_COL: Record<string, string> = {
+  title: "title", company: "company", location: "location", country: "country",
+  city: "city", industry: "industry", seniority: "seniority",
+  roleType: "role_type", roleCategory: "role_category",
+};
+
 const filterSchema = z.object({
   // Time window (applies to extractedDate). `month` is a YYYY-MM convenience.
   from: z.string().datetime().optional(),
@@ -41,8 +57,13 @@ const filterSchema = z.object({
   expMin: z.coerce.number().int().min(0).max(60).optional(),
   expMax: z.coerce.number().int().min(0).max(60).optional(),
 
-  // Free-text search over title + company + location + description (trigram).
+  // Free-text search. `qField` scopes it to ONE column (default title). Without
+  // qField it searches title + company + location (no description — that trigram
+  // subquery is heavy and was the source of "jobs query failed").
   q: z.string().max(200).optional(),
+  qField: z
+    .enum(["title", "company", "location", "country", "city", "industry", "seniority", "roleType", "roleCategory"])
+    .optional(),
 
   // Scope: "public" = shared-to-stats union across all users (deduped by url);
   // "me" = the authenticated user's own jobs (route supplies the userId).
@@ -113,15 +134,23 @@ export function wherePrisma(f: StatsFilters, userId?: string): Prisma.JobWhereIn
     };
   }
 
-  // Word-inside-text search across all text columns (trigram-indexed ILIKE).
-  // description lives in the side table now — search it via the relation.
+  // Word-inside-text search with OR / AND support. Scoped to one column when
+  // `qField` is given (default title), else title/company/location.
   if (f.q) {
-    where.OR = [
-      { title: { contains: f.q, mode: "insensitive" } },
-      { company: { contains: f.q, mode: "insensitive" } },
-      { location: { contains: f.q, mode: "insensitive" } },
-      { descriptionRow: { text: { contains: f.q, mode: "insensitive" } } },
-    ];
+    const { terms, op } = splitQuery(f.q);
+    const like = (t: string) => ({ contains: t, mode: "insensitive" as const });
+    if (f.qField) {
+      const field = f.qField;
+      const clauses = terms.map((t) => ({ [field]: like(t) }) as Prisma.JobWhereInput);
+      if (op === "AND") (where.AND ??= [] as Prisma.JobWhereInput[]) && (where.AND as Prisma.JobWhereInput[]).push(...clauses);
+      else where.OR = clauses;
+    } else {
+      const anyField = (t: string): Prisma.JobWhereInput => ({
+        OR: [{ title: like(t) }, { company: like(t) }, { location: like(t) }],
+      });
+      if (op === "AND") where.AND = terms.map(anyField);
+      else where.OR = terms.flatMap((t) => [{ title: like(t) }, { company: like(t) }, { location: like(t) }]);
+    }
   }
   return where;
 }
@@ -160,12 +189,19 @@ export function whereSql(f: StatsFilters, userId?: string): Prisma.Sql {
   if (f.expMax !== undefined) c.push(Prisma.sql`experience_years <= ${f.expMax}`);
 
   if (f.q) {
-    const like = `%${f.q}%`;
-    // description moved to job_descriptions; match it with an id-subquery so the
-    // moved trigram index is still used.
-    c.push(
-      Prisma.sql`(title ILIKE ${like} OR company ILIKE ${like} OR location ILIKE ${like} OR id IN (SELECT jd.job_id FROM "job_descriptions" jd WHERE jd.text ILIKE ${like}))`,
-    );
+    const { terms, op } = splitQuery(f.q);
+    const sep = op === "AND" ? " AND " : " OR ";
+    if (f.qField) {
+      const col = Prisma.raw(`"${SQL_COL[f.qField]}"`);
+      const parts = terms.map((t) => Prisma.sql`${col} ILIKE ${`%${t}%`}`);
+      c.push(Prisma.sql`(${Prisma.join(parts, sep)})`);
+    } else {
+      const parts = terms.map((t) => {
+        const l = `%${t}%`;
+        return Prisma.sql`(title ILIKE ${l} OR company ILIKE ${l} OR location ILIKE ${l})`;
+      });
+      c.push(Prisma.sql`(${Prisma.join(parts, sep)})`);
+    }
   }
 
   if (c.length === 0) return Prisma.empty;
