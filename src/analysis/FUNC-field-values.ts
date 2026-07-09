@@ -80,5 +80,5 @@ export function searchFieldValues(field: string, q: string, limit = 30): string[
     }
     return a.localeCompare(b);
   });
-  return Array.from(new Set(sorted)).slice(0, Math.min(Math.max(limit, 1), 100));
+  return Array.from(new Set(sorted)).slice(0, Math.min(Math.max(limit, 1), 500));
 }
